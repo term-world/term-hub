@@ -1,0 +1,20 @@
+{
+  "name": "term-hub",
+  "version": "1.0.0",
+  "description": "Hub for starting Docker images to support term-world",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Douglas Luman",
+  "license": "ISC",
+  "dependencies": {
+    "dockerode": "^3.3.1",
+    "dotenv": "^16.0.1",
+    "express": "^4.18.1",
+    "express-session": "^1.17.3",
+    "passport": "^0.6.0",
+    "passport-github": "^1.1.0"
+  }
+}
