@@ -4,16 +4,27 @@ const passport = require('passport');
 
 // Server setup
 const express = require('express');
+      cookies = require('cookie-parser');
       sessions = require('express-session');
       crypto = require("crypto");
-      session = sessions({
-        secret: "16335",
-        resave: true,
-        saveUninitialized: true
-      });
-      server = express()
-      server.use(session);
-      app = server.listen(4180, ()=> { })
+      http = require("http");
+      proxy = require("http-proxy");
+
+session = sessions({
+  secret: crypto.randomBytes(10).toString("hex"),
+  resave: true,
+  saveUninitialized: true
+});
+
+server = express()
+
+server.use(session);
+server.use(cookies());
+server.use(passport.initialize());
+server.use(passport.session());
+
+app = server.listen(4180, ()=> { })
+webProxy = proxy.createProxyServer({ });
 
 // Get credentials from .env file
 require('dotenv').config()
@@ -22,25 +33,40 @@ require('dotenv').config()
 const image = "world"
       users = {}
       tokens = {}
+      addresses = {}
       ports = ['4180','8080']
-      addresses = ['127.0.0.1']
 
 // Docker
-const Docker = require("dockerode")
+const Docker = require("dockerode");
 const docker = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Helper functions
-
-const openPort = () => {
-  let port = Math.floor(1000 + Math.random() * 9000);
-  if(!ports.includes(port)){
+const addPorts = (uid) => {
+  let port = 1000;
+  if(!ports.hasOwnProperty(port)){
+    ports[uid] = port
     return port;
   }
-  openPort();
+  port++;
 }
 
-const makeAddress = () => {
-  //TODO: Make addresses
+const acquireIP = (container, callback) => {
+  container.inspect((err,data) => {
+    let ip = data.NetworkSettings.Networks.bridge.IPAddress;
+    if(!ip){
+      acquireIP(container, callback);
+    } else {
+      callback(ip);
+    }
+  });
+}
+
+const connect = (address, port, callback) => {
+  http.get({host: address, port: port, path: "/"}, (res) => {
+    callback();
+  }).on('error', (e) => {
+    connect(address, port, callback);
+  });
 }
 
 // OAuth2 process via passport and passport-github
@@ -65,11 +91,21 @@ passport.deserializeUser((user, callback) => {
   }
 });
 
-server.get('/', passport.authenticate('github'));
+server.get('/login', passport.authenticate('github'));
+
+server.get("/", (req, res) => {
+  if(req.user){
+    let token = tokens[req.user.id];
+    webProxy.web(req, res, {target: `http://${addresses[token]}:$ports[req.user.id]`});
+  } else {
+    res.redirect("/login");
+  }
+});
 
 server.get('/oauth2/callback', passport.authenticate('github', {failureRedirect: '/'}), (req, res) => {
   let token = crypto.randomBytes(15).toString("hex");
   tokens[req.user.id] = token;
+  ports[token] = addPorts(req.user.id);
   docker.run(
     image,
     [],
@@ -85,21 +121,19 @@ server.get('/oauth2/callback', passport.authenticate('github', {failureRedirect:
           "Source": "/home/" + req.user.username,
           "Target": "/home/" + req.user.username
         }
-      ],
-      "Ports":[
-        {
-          "PublicPort": openPort(),
-          "PrivatePort": 8080,
-          "Type": "tcp"
-        }
-      ],
-      "NetworkSettings": {
-        "IPAddress": makeAddress()
-      }
-    }
-  ).then((data) => {
-    console.log(data);
-  }).catch((err) => {
-    console.log(err);
-  });
+      ]
+    }, (err, data, container) => {
+      console.log("CONTAINER ERROR.");
+    }).on('container', (container) => {
+      acquireIP(container, (address) => {
+        addresses[token] = address;
+        connect(
+          address,
+          ports[token],
+          () => {
+            res.redirect('/');
+          }
+        );
+      });
+    });
 });

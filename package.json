@@ -10,10 +10,12 @@
   "author": "Douglas Luman",
   "license": "ISC",
   "dependencies": {
+    "cookie-parser": "^1.4.6",
     "dockerode": "^3.3.1",
     "dotenv": "^16.0.1",
     "express": "^4.18.1",
     "express-session": "^1.17.3",
+    "http-proxy": "^1.18.1",
     "passport": "^0.6.0",
     "passport-github": "^1.1.0"
   }
