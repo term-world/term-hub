@@ -23,6 +23,9 @@ server.use(cookies());
 server.use(passport.initialize());
 server.use(passport.session());
 
+server.set('views', `${__dirname}/views`);
+server.set('view engine', 'ejs');
+
 app = server.listen(4180, ()=> { })
 webProxy = proxy.createProxyServer({ });
 
@@ -34,6 +37,7 @@ const image = "world"
       users = {}
       tokens = {}
       addresses = {}
+      containers = {}
       ports = ['4180','8080']
 
 // Docker
@@ -41,14 +45,6 @@ const Docker = require("dockerode");
 const docker = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Helper functions
-const addPorts = (uid) => {
-  let port = 1000;
-  if(!ports.hasOwnProperty(port)){
-    ports[uid] = port
-    return port;
-  }
-  port++;
-}
 
 const acquireIP = (container, callback) => {
   container.inspect((err,data) => {
@@ -68,6 +64,9 @@ const connect = (address, port, callback) => {
     connect(address, port, callback);
   });
 }
+
+const codeServer = http.createServer(server);
+codeServer.listen(8080);
 
 // OAuth2 process via passport and passport-github
 passport.use(new GitHub({
@@ -93,19 +92,9 @@ passport.deserializeUser((user, callback) => {
 
 server.get('/login', passport.authenticate('github'));
 
-server.get("/", (req, res) => {
-  if(req.user){
-    let token = tokens[req.user.id];
-    webProxy.web(req, res, {target: `http://${addresses[token]}:$ports[req.user.id]`});
-  } else {
-    res.redirect("/login");
-  }
-});
-
 server.get('/oauth2/callback', passport.authenticate('github', {failureRedirect: '/'}), (req, res) => {
   let token = crypto.randomBytes(15).toString("hex");
   tokens[req.user.id] = token;
-  ports[token] = addPorts(req.user.id);
   docker.run(
     image,
     [],
@@ -115,21 +104,18 @@ server.get('/oauth2/callback', passport.authenticate('github', {failureRedirect:
       "Env":[
         "VS_USER=" + req.user.username
       ],
-      "Mounts":[
-        {
-          "Type": "bind",
-          "Source": "/home/" + req.user.username,
-          "Target": "/home/" + req.user.username
-        }
+      "Binds":[
+        `/home/${req.user.username}:/home/${req.user.username}`
       ]
     }, (err, data, container) => {
       console.log("CONTAINER ERROR.");
     }).on('container', (container) => {
+      containers[token] = container;
       acquireIP(container, (address) => {
         addresses[token] = address;
         connect(
           address,
-          ports[token],
+          8080,
           () => {
             res.redirect('/');
           }
@@ -137,3 +123,24 @@ server.get('/oauth2/callback', passport.authenticate('github', {failureRedirect:
       });
     });
 });
+
+server.get('/', (req, res) => {
+  if(req.user) {
+    var token = tokens[req.user.id];
+    webProxy.web(req, res, {target: `http://${addresses[token]}:8080`});
+  } else {
+    res.render("login");
+  }
+});
+
+codeServer.on("upgrade", (req, socket, head) => {
+  session(req, {}, () => {
+    var user = req.session.passport.user;
+    webProxy.ws(req, socket, head, {target: `ws://${addresses[tokens[user.id]]}:8080`});
+    socket.on("data", () => {
+      // TODO: Socket data time update?
+    });
+  });
+});
+
+codeServer.on("error", err => console.log(err));
