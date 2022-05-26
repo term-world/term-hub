@@ -18,7 +18,9 @@ server.use(cookies());
 
 let app = server.listen(8080, ()=> { })
 
+let pid = 1000;
 let ports = []
+let addresses = {}
 
 // Docker setup
 const Docker = require("dockerode");
@@ -26,12 +28,15 @@ const Docker = require("dockerode");
 
 // Operations
 
-const ip = () => {
-  let pid = 1000;
-  if(!ports.hasOwnProperty(pid)) {
-    ports.push(pid);
+const port = () => {
+  while(true) {
+    pid++;
+    if(!ports.hasOwnProperty(pid)) {
+      ports.push(pid);
+      break;
+    }
   }
-  pid++;
+  return pid;
 }
 
 const address = (container, fn) => {
@@ -43,8 +48,7 @@ const address = (container, fn) => {
 }
 
 const connect = (addr, fn) => {
-  let port = ip();
-  http.get({ host:addr, port: 8000, path: '/' }, (res) => {
+  http.get({ host:addr, port: `${addresses[addr]}`, path: '/' }, (res) => {
     fn();
   }).on('error', (err) => {
     connect(addr, fn);
@@ -52,15 +56,27 @@ const connect = (addr, fn) => {
 };
 
 server.get('/start', (req, res) => {
+  var pid = port();
   let user = req.headers['x-forwarded-user'];
   ishmael.run('world', [], undefined, {
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
-    "Binds": [`/home/${user}:/home/${user}`]
+    "ExposedPorts": {"8000/tcp":{}},
+    "HostConfig": {
+      "Binds": [`/home/${user}:/home/${user}`],
+      "PortBindings": {
+        "8000/tcp": [
+          {
+            "HostPort": "8000"
+          }
+        ]
+      }
+    }
   }, (err,data,container) => {
     console.log(`[ERROR] ${err}`);
   }).on('container', (container) => {
     address(container, (addr) => {
+      addresses[addr] = pid;
       console.log(`[CONTAINER] Started at ${addr}`);
       connect(addr, () => {
         res.redirect('/');
