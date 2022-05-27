@@ -19,8 +19,12 @@ server.use(cookies());
 let app = server.listen(8080, ()=> { })
 
 let pid = 1000;
-let ports = []
-let addresses = {}
+let ports = [];
+let registry = { };
+
+// Proxy server for built containers
+const httpProxy = require('http-proxy');
+const proxy = httpProxy.createServer({});
 
 // Docker setup
 const Docker = require("dockerode");
@@ -48,12 +52,24 @@ const address = (container, fn) => {
 }
 
 const connect = (addr, fn) => {
-  http.get({ host:addr, port: `${addresses[addr]}`, path: '/' }, (res) => {
+  http.get({ host: addr, port: registry[addr].params.port, path: '/' }, (res) => {
+    console.log("resolved");
     fn();
   }).on('error', (err) => {
     connect(addr, fn);
   });
 };
+
+const updateRegistry = (store) => {
+  let addr = store.address;
+  let params = store.params;
+  if(!registry[addr]) registry[addr] = { }
+  if(!registry[addr].params) registry[addr].params = { }
+  for(let param in params) {
+    registry[addr]["params"][param] = params[param]
+  }
+  console.log(registry);
+}
 
 server.get('/start', (req, res) => {
   var pid = port();
@@ -67,7 +83,7 @@ server.get('/start', (req, res) => {
       "PortBindings": {
         "8000/tcp": [
           {
-            "HostPort": "8000"
+            "HostPort": pid.toString()
           }
         ]
       }
@@ -76,11 +92,23 @@ server.get('/start', (req, res) => {
     console.log(`[ERROR] ${err}`);
   }).on('container', (container) => {
     address(container, (addr) => {
-      addresses[addr] = pid;
       console.log(`[CONTAINER] Started at ${addr}`);
+      updateRegistry({
+        address: addr,
+        params: {
+          container: container,
+          user: user,
+          port: pid
+        }
+      });
       connect(addr, () => {
+        console.log("Redirect...");
         res.redirect('/');
       });
     })
   });
+});
+
+server.get('/', (req,res) => {
+  proxy.web(req, res, {target: `http://${addr}:${registry[addr].params.port}`});
 });
