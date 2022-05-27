@@ -16,7 +16,8 @@ let server = express()
 server.use(session);
 server.use(cookies());
 
-let app = server.listen(8080, ()=> { })
+let app = http.createServer(server);
+app.listen(8080);
 
 let pid = 1000;
 let ports = [];
@@ -51,22 +52,21 @@ const address = (container, fn) => {
   });
 }
 
-const connect = (addr, fn) => {
-  http.get({ host: addr, port: registry[addr].params.port, path: '/' }, (res) => {
-    console.log("resolved");
+const connect = (user, fn) => {
+  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }, (res) => {
     fn();
   }).on('error', (err) => {
-    connect(addr, fn);
+    connect(user, fn);
   });
 };
 
 const updateRegistry = (store) => {
-  let addr = store.address;
+  let user = store.user;
   let params = store.params;
-  if(!registry[addr]) registry[addr] = { }
-  if(!registry[addr].params) registry[addr].params = { }
+  if(!registry[user]) registry[user] = { }
+  if(!registry[user].params) registry[user].params = { }
   for(let param in params) {
-    registry[addr]["params"][param] = params[param]
+    registry[user]["params"][param] = params[param]
   }
   console.log(registry);
 }
@@ -94,21 +94,28 @@ server.get('/start', (req, res) => {
     address(container, (addr) => {
       console.log(`[CONTAINER] Started at ${addr}`);
       updateRegistry({
-        address: addr,
+        user: user,
         params: {
           container: container,
-          user: user,
+          address: addr,
           port: pid
         }
       });
-      connect(addr, () => {
-        console.log("Redirect...");
+      connect(user, () => {
         res.redirect('/');
       });
     })
   });
 });
 
-server.get('/', (req,res) => {
-  proxy.web(req, res, {target: `http://${addr}:${registry[addr].params.port}`});
+server.get('/*', (req,res) => {
+  let user = req.headers['x-forwarded-user'];
+  proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
+});
+
+app.on("upgrade", (req, socket, head) => {
+  let user = req.headers['x-forwarded-user'];
+  session(req, {}, () => {
+    proxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
+  });
 });
