@@ -71,7 +71,7 @@ const updateRegistry = (store) => {
   console.log(registry);
 }
 
-server.get('/start', (req, res) => {
+server.get('/login', (req, res) => {
   var pid = port();
   let user = req.headers['x-forwarded-user'];
   ishmael.run('world', [], undefined, {
@@ -119,3 +119,5 @@ app.on("upgrade", (req, socket, head) => {
     proxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
   });
 });
+
+app.on("error", err => console.log(err));

@@ -4,8 +4,7 @@
   "description": "Hub for starting Docker images to support term-world",
   "main": "index.js",
   "scripts": {
-    "auth": "node index-auth.js",
-    "start": "node index-noauth.js",
+    "start": "node hub.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Douglas Luman",
