@@ -15,6 +15,7 @@ let server = express()
 
 server.use(session);
 server.use(cookies());
+server.maxConnections=2;
 
 let app = http.createServer(server);
 app.listen(8080);
@@ -22,6 +23,9 @@ app.listen(8080);
 let pid = 1000;
 let ports = [];
 let registry = { };
+
+// Constants
+let timeout = 1800000;
 
 // Proxy server for built containers
 const httpProxy = require('http-proxy');
@@ -53,9 +57,14 @@ const address = (container, fn) => {
 }
 
 const connect = (user, fn) => {
-  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }, (res) => {
+//  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }, (res) => {
+//    fn();
+//  }).on('error', (err) => {
+//    connect(user, fn);
+//  });
+  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }).then((res) => {
     fn();
-  }).on('error', (err) => {
+  }).catch((err) => {
     connect(user, fn);
   });
 };
@@ -70,6 +79,27 @@ const updateRegistry = (store) => {
   }
   console.log(registry);
 }
+
+const cullIdle = () => {
+  let time = (new Date()).getTime();
+  for (let entry in registry) {
+    let idle = time - registry[entry].params.active;
+    if(idle > timeout) {
+      remove(entry);
+    }
+  }
+}
+
+const remove = (entry) => {
+  let container = registry[entry].params.container;
+  container.kill((err, res) => {
+    container.remove((err, res) => {
+    });
+  });
+  delete registry[entry];
+}
+
+// Set up endpoints
 
 server.get('/login', (req, res) => {
   var pid = port();
@@ -110,6 +140,7 @@ server.get('/login', (req, res) => {
 
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
+  console.log(`[PROXY] ${registry[user]}`);
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
 });
 
@@ -117,7 +148,32 @@ app.on("upgrade", (req, socket, head) => {
   let user = req.headers['x-forwarded-user'];
   session(req, {}, () => {
     proxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
+    socket.on("data", (data) => {
+      let active = (new Date()).getTime();
+      registry[user].params.active = active;
+    });
+    socket.on("errpr", (err) => {
+      console.log("SOCKET HANGUP");
+    });
   });
 });
 
 app.on("error", err => console.log(err));
+
+setInterval(
+  cullIdle,
+  timeout
+);
+
+process.on('exit', () => {
+  for(let entry in registry) {
+    remove(entry);
+  }
+});
+
+process.on('SIGINT', () => {
+  for(let entry in registry) {
+    remove(entry);
+  }
+  process.exit();
+});
