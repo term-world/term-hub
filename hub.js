@@ -15,7 +15,6 @@ let server = express()
 
 server.use(session);
 server.use(cookies());
-server.maxConnections=2;
 
 let app = http.createServer(server);
 app.listen(8080);
@@ -57,14 +56,10 @@ const address = (container, fn) => {
 }
 
 const connect = (user, fn) => {
-//  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }, (res) => {
-//    fn();
-//  }).on('error', (err) => {
-//    connect(user, fn);
-//  });
-  http.get({ host: "0.0.0.0", port: registry[user].params.port, path: '/' }).then((res) => {
+  let port = registry[user].params.port
+  http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
     fn();
-  }).catch((err) => {
+  }).on('error', (err) => {
     connect(user, fn);
   });
 };
@@ -77,7 +72,6 @@ const updateRegistry = (store) => {
   for(let param in params) {
     registry[user]["params"][param] = params[param]
   }
-  console.log(registry);
 }
 
 const cullIdle = () => {
@@ -85,16 +79,25 @@ const cullIdle = () => {
   for (let entry in registry) {
     let idle = time - registry[entry].params.active;
     if(idle > timeout) {
-      remove(entry);
+      remove(entry, () => { });
     }
   }
 }
 
-const remove = (entry) => {
+const remove = (entry, fn) => {
   let container = registry[entry].params.container;
+  console.log(`[CONTAINER] Killing ${entry} container at ${registry[entry].params.address}`);
   container.kill((err, res) => {
-    container.remove((err, res) => {
-    });
+    console.log(`[CONTAINER] Killing...`);
+    if(err){
+      console.log(err);
+      fn();
+    } else {
+      container.remove((err, res) => {
+        console.log(`[CONTAINER] Removing...`);
+        fn();
+      });
+    }
   });
   delete registry[entry];
 }
@@ -132,7 +135,7 @@ server.get('/login', (req, res) => {
         }
       });
       connect(user, () => {
-        res.redirect('/');
+        res.redirect(`/`);
       });
     })
   });
@@ -140,7 +143,7 @@ server.get('/login', (req, res) => {
 
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
-  console.log(`[PROXY] ${registry[user]}`);
+  console.log(`[PROXY] ${registry[user].params.address}`);
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
 });
 
@@ -152,7 +155,7 @@ app.on("upgrade", (req, socket, head) => {
       let active = (new Date()).getTime();
       registry[user].params.active = active;
     });
-    socket.on("errpr", (err) => {
+    socket.on("error", (err) => {
       console.log("SOCKET HANGUP");
     });
   });
@@ -167,13 +170,14 @@ setInterval(
 
 process.on('exit', () => {
   for(let entry in registry) {
-    remove(entry);
+    remove(entry, () => { });
   }
 });
 
 process.on('SIGINT', () => {
+  console.log("[SIGINT] Received SIGINT");
   for(let entry in registry) {
-    remove(entry);
+    remove(entry, () => {});
   }
   process.exit();
 });
