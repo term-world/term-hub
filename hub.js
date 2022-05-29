@@ -26,10 +26,6 @@ let registry = { };
 // Constants
 let timeout = 1800000;
 
-// Proxy server for built containers
-const httpProxy = require('http-proxy');
-const proxy = httpProxy.createServer({});
-
 // Docker setup
 const Docker = require("dockerode");
       ishmael = new Docker({socketPath: '/var/run/docker.sock'});
@@ -60,6 +56,7 @@ const connect = (user, fn) => {
   http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
     fn();
   }).on('error', (err) => {
+    console.log(err);
     connect(user, fn);
   });
 };
@@ -90,7 +87,6 @@ const remove = (entry, fn) => {
   container.kill((err, res) => {
     console.log(`[CONTAINER] Killing...`);
     if(err){
-      console.log(err);
       fn();
     } else {
       container.remove((err, res) => {
@@ -101,6 +97,9 @@ const remove = (entry, fn) => {
   });
   delete registry[entry];
 }
+
+const httpProxy = require('http-proxy');
+const proxy = httpProxy.createServer({});
 
 // Set up endpoints
 
@@ -149,8 +148,10 @@ server.get('/*', (req,res) => {
 
 app.on("upgrade", (req, socket, head) => {
   let user = req.headers['x-forwarded-user'];
+  // Proxy server for built containers
+  let wsProxy = httpProxy.createServer({});
   session(req, {}, () => {
-    proxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
+    wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
     socket.on("data", (data) => {
       let active = (new Date()).getTime();
       registry[user].params.active = active;
