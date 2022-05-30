@@ -26,11 +26,8 @@ app.listen(8080);
 
 // Define constants
 
-//let pid = 1000;
-let ports = [80, 4180, 8080];
-
+let ports = [80, 443, 4180, 8080];
 let registry = { };
-
 let timeout = 1800000;
 
 // Docker setup
@@ -40,19 +37,26 @@ const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Operations
 
+const randomize = (lower, upper) => {
+  return Math.floor(upper - lower) + lower;
+}
+
+// Create random port as starting point
+
+let pid = randomize(1000, 65535);
+
 /**
  * Generates a unique port for new containers
  * @function port
  * @private
  */
 const port = () => {
-  let pid = 1000;
   while(true) {
     if(!ports.hasOwnProperty(pid)) {
       ports.push(pid);
       break;
     }
-    pid = Math.floor(64535) + 1000;
+    pid = randomize(1000, 65535);
   }
   return pid;
 }
@@ -62,7 +66,7 @@ const port = () => {
  * @function address
  * @private
  * @param {Container} container Instance of an individual container
- * @param {function}  fn        Callback function
+ * @param {Function}  fn        Callback function
  */
 const address = (container, fn) => {
   container.inspect((err,data) => {
@@ -77,14 +81,15 @@ const address = (container, fn) => {
  * @function connect
  * @private
  * @param {String}    user  Username of user from x-forwarded-user
- * @param {function}  fn    Callback function
+ * @param {Function}  fn    Callback function
  */
 const connect = (user, fn) => {
   let port = registry[user].params.port
+  // Make request to the container's endpoint to establish connection
   http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
     fn();
   }).on('error', (err) => {
-    console.log(err);
+    // On error, continue to try connection until connection established
     connect(user, fn);
   });
 };
@@ -147,11 +152,17 @@ const remove = (entry, fn) => {
 const httpProxy = require('http-proxy');
 const proxy = httpProxy.createServer({});
 
-// Set up endpoints
-
+/**
+ * Acquires content at /login endpoint
+ * @param {Object}  req   Web request
+ * @param {Object}  res   Web response
+ */
 server.get('/login', (req, res) => {
+  // Acquire random port
   var pid = port();
+  // Get authenticated user
   let user = req.headers['x-forwarded-user'];
+  // Create container from Docker APi
   ishmael.run('world', [], undefined, {
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
@@ -167,10 +178,13 @@ server.get('/login', (req, res) => {
       }
     }
   }, (err,data,container) => {
+    // On container launch error, report error
     console.log(`[ERROR] ${err}`);
   }).on('container', (container) => {
+    // On container creation, get container private address
     address(container, (addr) => {
       console.log(`[CONTAINER] Started at ${addr}`);
+      // Update global registry
       updateRegistry({
         user: user,
         params: {
@@ -179,6 +193,7 @@ server.get('/login', (req, res) => {
           port: pid
         }
       });
+      // Callback to redirect request
       connect(user, () => {
         res.redirect(`/`);
       });
@@ -186,15 +201,26 @@ server.get('/login', (req, res) => {
   });
 });
 
+/**
+ * Acquires content at /* endpoint
+ * @param {Object}  req   Web request
+ * @param {Object}  res   Web response
+ */
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
   console.log(`[PROXY] ${registry[user].params.address}`);
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
 });
 
+/**
+ * Acquires content at /login endpoint
+ * @param {Object}  req     Web request
+ * @param {Object}  socket  Web response
+ * @param {Object}  head    ?
+ */
 app.on("upgrade", (req, socket, head) => {
   let user = req.headers['x-forwarded-user'];
-  // Proxy server for built containers
+  // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
   session(req, {}, () => {
     wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
@@ -208,6 +234,10 @@ app.on("upgrade", (req, socket, head) => {
   });
 });
 
+/**
+ * Event handler for server-side errors
+ * @param {String} err  Error message
+ */
 app.on("error", err => console.log(err));
 
 setInterval(
@@ -215,12 +245,18 @@ setInterval(
   timeout
 );
 
+/**
+ * Event handler for runtime exit errors
+ */
 process.on('exit', () => {
   for(let entry in registry) {
     remove(entry, () => { });
   }
 });
 
+/**
+ * Event handler for SIGINT message
+ */
 process.on('SIGINT', () => {
   console.log("[SIGINT] Received SIGINT");
   for(let entry in registry) {
