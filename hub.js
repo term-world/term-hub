@@ -38,6 +38,13 @@ const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Operations
 
+/**
+ * Creates random port assignment between 1000 and 65535
+ * @function randomize
+ * @private
+ * @param {String}  lower   Lower limit of random range
+ * @param {String}  upper   Upper limit of random range
+ */
 const randomize = (lower, upper) => {
   return Math.floor(Math.random() * (upper - lower) + lower);
 }
