@@ -82,8 +82,7 @@ const occupied = (port) => {
  */
 const port = () => {
   while(true) {
-    let used = occupied(port)
-    console.log(pid);
+    let used = occupied(port);
     if(!ports.hasOwnProperty(pid) && !used) {
       ports.push(pid);
       break;
@@ -149,6 +148,7 @@ const updateRegistry = (store) => {
  */
 const cullIdle = () => {
   let time = (new Date()).getTime();
+  console.log("[HUB] Killing idle containers...");
   for (let entry in registry) {
     let idle = time - registry[entry].params.active;
     if(idle > timeout) {
@@ -166,7 +166,7 @@ const cullIdle = () => {
  */
 const remove = (entry, fn) => {
   let container = registry[entry].params.container;
-  console.log(`[CONTAINER] Killing ${entry} container at ${registry[entry].params.address}`);
+  console.log(`[CONTAINER] Killing ${entry} container ${container.id}`);
   container.kill((err, res) => {
     console.log(`[CONTAINER] Killing...`);
     if(err){
@@ -178,8 +178,18 @@ const remove = (entry, fn) => {
       });
     }
   });
-  delete registry[entry];
 }
+
+const kill = () => {
+  for(let entry in registry) {
+    remove(entry, () => {
+      kill();
+    });
+  }
+  process.exit();
+}
+
+// Set up generic proxies
 
 const httpProxy = require('http-proxy');
 const proxy = httpProxy.createServer({});
@@ -234,13 +244,13 @@ server.get('/login', (req, res) => {
 });
 
 /**
- * Acquires content at /* endpoint
+ * Acquires content at / endpoint
  * @param {Object}  req   Web request
  * @param {Object}  res   Web response
  */
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
-  console.log(`[PROXY] ${registry[user].params.address}`);
+  //console.log(`[PROXY] ${registry[user].params.address}`);
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
 });
 
@@ -263,6 +273,12 @@ app.on("upgrade", (req, socket, head) => {
     socket.on("error", (err) => {
       console.log("SOCKET HANGUP");
     });
+    socket.on("close", () => {
+      let container = registry[user].params.container;
+      container.kill((err, data) => {
+        console.log(data);
+      });
+    });
   });
 });
 
@@ -280,19 +296,9 @@ setInterval(
 /**
  * Event handler for runtime exit errors
  */
-process.on('exit', () => {
-  for(let entry in registry) {
-    remove(entry, () => { });
-  }
-});
+//process.on('exit', kill.bind());
 
 /**
  * Event handler for SIGINT message
  */
-process.on('SIGINT', () => {
-  console.log("[SIGINT] Received SIGINT");
-  for(let entry in registry) {
-    remove(entry, () => {});
-  }
-  process.exit();
-});
+//process.on('SIGINT', kill.bind());
