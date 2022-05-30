@@ -26,7 +26,7 @@ app.listen(8080);
 
 // Define constants
 
-let pid = 1000;
+//let pid = 1000;
 let ports = [80, 4180, 8080];
 
 let registry = { };
@@ -46,12 +46,13 @@ const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
  * @private
  */
 const port = () => {
+  let pid = Math.floor(64535) + 1000;
   while(true) {
-    pid++;
     if(!ports.hasOwnProperty(pid)) {
       ports.push(pid);
       break;
     }
+    port();
   }
   return pid;
 }
