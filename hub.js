@@ -141,54 +141,6 @@ const updateRegistry = (store) => {
   }
 }
 
-/**
- * Removes idle containers
- * @function cullIdle
- * @private
- */
-const cullIdle = () => {
-  let time = (new Date()).getTime();
-  console.log("[HUB] Killing idle containers...");
-  for (let entry in registry) {
-    let idle = time - registry[entry].params.active;
-    if(idle > timeout) {
-      remove(entry, () => { });
-    }
-  }
-}
-
-/**
- * Removes and kills containers
- * @function remove
- * @private
- * @param {String}    entry   Username to look up in global registry
- * @param {function}  fn      Callback function
- */
-const remove = (entry, fn) => {
-  let container = registry[entry].params.container;
-  console.log(`[CONTAINER] Killing ${entry} container ${container.id}`);
-  container.kill((err, res) => {
-    console.log(`[CONTAINER] Killing...`);
-    if(err){
-      fn();
-    } else {
-      container.remove((err, res) => {
-        console.log(`[CONTAINER] Removing...`);
-        fn();
-      });
-    }
-  });
-}
-
-const kill = () => {
-  for(let entry in registry) {
-    remove(entry, () => {
-      kill();
-    });
-  }
-  process.exit();
-}
-
 // Set up generic proxies
 
 const httpProxy = require('http-proxy');
@@ -221,7 +173,7 @@ server.get('/login', (req, res) => {
     }
   }, (err,data,container) => {
     // On container launch error, report error
-    console.log(`[ERROR] ${err}`);
+    // console.log(`[ERROR] ${err}`);
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
@@ -276,7 +228,6 @@ app.on("upgrade", (req, socket, head) => {
     socket.on("close", () => {
       let container = registry[user].params.container;
       container.kill((err, data) => {
-        console.log(data);
       });
     });
   });
@@ -287,18 +238,3 @@ app.on("upgrade", (req, socket, head) => {
  * @param {String} err  Error message
  */
 app.on("error", err => console.log(err));
-
-setInterval(
-  cullIdle,
-  timeout
-);
-
-/**
- * Event handler for runtime exit errors
- */
-//process.on('exit', kill.bind());
-
-/**
- * Event handler for SIGINT message
- */
-//process.on('SIGINT', kill.bind());
