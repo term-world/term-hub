@@ -3,12 +3,12 @@
 // Set up server packages; create session
 
 const express = require('express');
-      sessions = require('express-session');
-      cookies = require('cookie-parser');
-      crypto = require('crypto');
-      http = require('http');
+const sessions = require('express-session');
+const cookies = require('cookie-parser');
+const crypto = require('crypto');
+const http = require('http');
 
-session = sessions({
+const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
   resave: true,
   saveUninitialized: true
@@ -36,7 +36,7 @@ let timeout = 1800000;
 // Docker setup
 
 const Docker = require("dockerode");
-      ishmael = new Docker({socketPath: '/var/run/docker.sock'});
+const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Operations
 
@@ -125,6 +125,7 @@ const cullIdle = () => {
  * @private
  * @param {String}    entry   Username to look up in global registry
  * @param {function}  fn      Callback function
+ */
 const remove = (entry, fn) => {
   let container = registry[entry].params.container;
   console.log(`[CONTAINER] Killing ${entry} container at ${registry[entry].params.address}`);
