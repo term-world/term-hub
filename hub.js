@@ -204,6 +204,9 @@ server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
   //console.log(`[PROXY] ${registry[user].params.address}`);
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
+  proxy.on("error", (err) => {
+    console.log("[PROXY] Experienced an error...");
+  });
 });
 
 /**
@@ -216,6 +219,9 @@ app.on("upgrade", (req, socket, head) => {
   let user = req.headers['x-forwarded-user'];
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
+  wsProxy.on("error", (err) => {
+    console.log("[PROXY] Experienced an error...");
+  });
   session(req, {}, () => {
     wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
     socket.on("data", (data) => {
