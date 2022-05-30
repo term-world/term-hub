@@ -7,6 +7,7 @@ const sessions = require('express-session');
 const cookies = require('cookie-parser');
 const crypto = require('crypto');
 const http = require('http');
+const net = require('net');
 
 const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
@@ -38,12 +39,34 @@ const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 // Operations
 
 const randomize = (lower, upper) => {
-  return Math.floor(upper - lower) + lower;
+  return Math.floor(Math.random() * (upper - lower) + lower);
 }
 
 // Create random port as starting point
 
 let pid = randomize(1000, 65535);
+
+/**
+ * Discovers ports already in use
+ * @function occupied
+ * @private
+ * @param {String}    port  Port to query
+ * @param {Function}  fn    Callback
+ */
+const occupied = (port) => {
+  let server = net.createServer((socket) => {
+    socket.write('Ping\r\n');
+    socket.pipe(socket);
+  });
+  server.on("error", (err) => {
+    return true;
+  });
+  server.on("listening", (success) => {
+    server.close();
+    return false;
+  });
+  server.listen(port, '0.0.0.0');
+}
 
 /**
  * Generates a unique port for new containers
@@ -52,7 +75,9 @@ let pid = randomize(1000, 65535);
  */
 const port = () => {
   while(true) {
-    if(!ports.hasOwnProperty(pid)) {
+    let used = occupied(port)
+    console.log(pid);
+    if(!ports.hasOwnProperty(pid) && !used) {
       ports.push(pid);
       break;
     }
