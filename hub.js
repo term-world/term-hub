@@ -1,4 +1,7 @@
-// Server setup
+"use strict";
+
+// Set up server packages; create session
+
 const express = require('express');
       sessions = require('express-session');
       cookies = require('cookie-parser');
@@ -16,22 +19,32 @@ let server = express()
 server.use(session);
 server.use(cookies());
 
+// Listen for incoming traffic on port 8080
+
 let app = http.createServer(server);
 app.listen(8080);
 
+// Define constants
+
 let pid = 1000;
-let ports = [];
+let ports = [80, 4180, 8080];
+
 let registry = { };
 
-// Constants
 let timeout = 1800000;
 
 // Docker setup
+
 const Docker = require("dockerode");
       ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 
 // Operations
 
+/**
+ * Generates a unique port for new containers
+ * @function port
+ * @private
+ */
 const port = () => {
   while(true) {
     pid++;
@@ -43,6 +56,13 @@ const port = () => {
   return pid;
 }
 
+/**
+ * Acquires address from a container's properties
+ * @function address
+ * @private
+ * @param {Container} container Instance of an individual container
+ * @param {function}  fn        Callback function
+ */
 const address = (container, fn) => {
   container.inspect((err,data) => {
     let addr = data.NetworkSettings.Networks.bridge.IPAddress;
@@ -51,6 +71,13 @@ const address = (container, fn) => {
   });
 }
 
+/**
+ * Attempts to connect to the container on the generated port
+ * @function connect
+ * @private
+ * @param {String}    user  Username of user from x-forwarded-user
+ * @param {function}  fn    Callback function
+ */
 const connect = (user, fn) => {
   let port = registry[user].params.port
   http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
@@ -61,6 +88,12 @@ const connect = (user, fn) => {
   });
 };
 
+/**
+ * Adds user information to global registry object
+ * @function updateRegistry
+ * @private
+ * @param {Object} store  Object containing various parameters to add to the registry
+ */
 const updateRegistry = (store) => {
   let user = store.user;
   let params = store.params;
@@ -71,6 +104,11 @@ const updateRegistry = (store) => {
   }
 }
 
+/**
+ * Removes idle containers
+ * @function cullIdle
+ * @private
+ */
 const cullIdle = () => {
   let time = (new Date()).getTime();
   for (let entry in registry) {
@@ -81,6 +119,12 @@ const cullIdle = () => {
   }
 }
 
+/**
+ * Removes and kills containers
+ * @function remove
+ * @private
+ * @param {String}    entry   Username to look up in global registry
+ * @param {function}  fn      Callback function
 const remove = (entry, fn) => {
   let container = registry[entry].params.container;
   console.log(`[CONTAINER] Killing ${entry} container at ${registry[entry].params.address}`);
