@@ -22,14 +22,14 @@ server.use(cookies());
 
 // Listen for incoming traffic on port 8080
 
-let app = http.createServer(server);
+const app = http.createServer(server);
 app.listen(8080);
 
 // Define constants
 
 let ports = [80, 443, 4180, 8080];
 let registry = { };
-let timeout = 1800000;
+const timeout = 1800000;
 
 // Docker setup
 
@@ -234,6 +234,7 @@ app.on("upgrade", (req, socket, head) => {
     socket.on("close", () => {
       let container = registry[user].params.container;
       container.kill((err, data) => {
+        console.log(data);
       });
     });
   });
