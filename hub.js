@@ -30,7 +30,7 @@ const timeout = 1800000;
 
 // Create registries (ports occupied, containers running)
 
-let ports = [80, 443, 4180, 8080];
+let ports = [80, 443, 4180, 8080, 5000];
 let registry = { };
 
 // Docker setup
@@ -146,7 +146,7 @@ const updateRegistry = (store) => {
 // Set up generic proxies
 
 const httpProxy = require('http-proxy');
-const proxy = httpProxy.createServer({});
+//const proxy = httpProxy.createServer({});
 
 /**
  * Acquires content at /login endpoint
@@ -160,7 +160,7 @@ server.get('/login', (req, res) => {
   console.log(req);
   console.log(res);
   let user = req.headers['x-forwarded-user'];
-  // Create container from Docker APi
+  // Create container from Docker API
   ishmael.run('world', [], undefined, {
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
@@ -207,9 +207,11 @@ server.get('/login', (req, res) => {
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
   if(!user) res.redirect("/login");
+  console.log(`${user} is attempting to login...`);
+  const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
   proxy.on("error", (err) => {
-    console.log("[PROXY] Experienced an error...");
+    console.log(err);
   });
 });
 
@@ -221,10 +223,11 @@ server.get('/*', (req,res) => {
  */
 app.on("upgrade", (req, socket, head) => {
   let user = req.headers['x-forwarded-user'];
+  console.log(`${user} being upgraded...`)
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
   wsProxy.on("error", (err) => {
-    console.log("[PROXY] Experienced an error...");
+    console.log(err);
   });
   session(req, {}, () => {
     wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
