@@ -26,10 +26,12 @@ const app = http.createServer(server);
 app.listen(8080);
 
 // Define constants
+const timeout = 1800000;
+
+// Create registries (ports occupied, containers running)
 
 let ports = [80, 443, 4180, 8080];
 let registry = { };
-const timeout = 1800000;
 
 // Docker setup
 
@@ -155,6 +157,8 @@ server.get('/login', (req, res) => {
   // Acquire random port
   var pid = port();
   // Get authenticated user
+  console.log(req);
+  console.log(res);
   let user = req.headers['x-forwarded-user'];
   // Create container from Docker APi
   ishmael.run('world', [], undefined, {
@@ -202,7 +206,7 @@ server.get('/login', (req, res) => {
  */
 server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
-  //console.log(`[PROXY] ${registry[user].params.address}`);
+  if(!user) res.redirect("/login");
   proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
   proxy.on("error", (err) => {
     console.log("[PROXY] Experienced an error...");
@@ -229,7 +233,7 @@ app.on("upgrade", (req, socket, head) => {
       registry[user].params.active = active;
     });
     socket.on("error", (err) => {
-      console.log("SOCKET HANGUP");
+      console.log("[ERROR] Socket error during websocket comm");
     });
     socket.on("close", () => {
       let container = registry[user].params.container;
@@ -244,4 +248,20 @@ app.on("upgrade", (req, socket, head) => {
  * Event handler for server-side errors
  * @param {String} err  Error message
  */
+server.on("error", err => console.log(err));
+
+/**
+ * Event handler for proxy-side errors
+ * @param {String} err  Error message
+ */
 app.on("error", err => console.log(err));
+
+process.on("SIGINT", (sig) => {
+  for(let entry in registry) {
+    let container = registry[entry].params.container;
+    container.kill((err, data) => {
+      console.log("[CONTAINER] Kill all");
+    });
+  }
+  process.exit();
+});
