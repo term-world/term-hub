@@ -53,7 +53,7 @@ const randomize = (lower, upper) => {
 
 // Create random port as starting point
 
-let pid = randomize(1000, 65535);
+//let pid = randomize(1000, 65535);
 
 /**
  * Discovers ports already in use
@@ -83,9 +83,11 @@ const occupied = (port) => {
  * @private
  */
 const port = () => {
+  let pid = randomize(1000, 65535);
   while(true) {
     let used = occupied(port);
-    if(!ports.hasOwnProperty(pid) && !used) {
+    if(!ports.hasOwnProperty(pid)) {
+      console.log(pid);
       ports.push(pid);
       break;
     }
@@ -146,7 +148,10 @@ const updateRegistry = (store) => {
 // Set up generic proxies
 
 const httpProxy = require('http-proxy');
-//const proxy = httpProxy.createServer({});
+/*const proxy = httpProxy.createServer({
+  secure: false,
+  changeOrigin: true
+});*/
 
 /**
  * Acquires content at /login endpoint
@@ -155,10 +160,11 @@ const httpProxy = require('http-proxy');
  */
 server.get('/login', (req, res) => {
   // Acquire random port
-  var pid = port();
+  let pid = port();
+  console.log(pid);
   // Get authenticated user
-  console.log(req);
-  console.log(res);
+  //console.log(req);
+  //console.log(res);
   let user = req.headers['x-forwarded-user'];
   // Create container from Docker API
   ishmael.run('world', [], undefined, {
@@ -177,7 +183,7 @@ server.get('/login', (req, res) => {
     }
   }, (err,data,container) => {
     // On container launch error, report error
-    // console.log(`[ERROR] ${err}`);
+    console.log(`[ERROR] ${err}`);
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
@@ -208,9 +214,11 @@ server.get('/*', (req,res) => {
   let user = req.headers['x-forwarded-user'];
   if(!user) res.redirect("/login");
   console.log(`${user} is attempting to login...`);
+  console.log(registry);
   const proxy = httpProxy.createServer({});
-  proxy.web(req, res, {target: `http://localhost:${registry[user].params.port}`});
+  proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
+    console.log("ON PROXY HANDOVER");
     console.log(err);
   });
 });
@@ -227,6 +235,7 @@ app.on("upgrade", (req, socket, head) => {
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
   wsProxy.on("error", (err) => {
+    console.log("ON PROXY UPGRADE");
     console.log(err);
   });
   session(req, {}, () => {
