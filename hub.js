@@ -172,7 +172,7 @@ server.get('/login', (req, res) => {
     "Env": [`VS_USER=${user}`],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
-      "Binds": [`/home/${user}:/home/${user}`],
+      "Binds": [`sum2022:/home`],
       "PortBindings": {
         "8000/tcp": [
           {
