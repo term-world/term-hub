@@ -272,9 +272,13 @@ app.on("error", err => console.log(err));
 process.on("SIGINT", (sig) => {
   for(let entry in registry) {
     let container = registry[entry].params.container;
-    container.kill((err, data) => {
-      console.log("[CONTAINER] Kill all");
+    container.remove((err, data) => {
+      console.log("[CONTAINER] Remove container");
+      ishmael.pruneContainers((label = container)=> {
+        console.log("[CONTAINER] Remove stopped container");
+      });
     });
+    
   }
   process.exit();
 });
