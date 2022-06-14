@@ -269,6 +269,8 @@ server.on("error", err => console.log(err));
  */
 app.on("error", err => console.log(err));
 
+//Remove the container on SIGINT or exit
+
 process.on("SIGINT", (sig) => {
   for(let entry in registry) {
     let container = registry[entry].params.container;
