@@ -168,6 +168,7 @@ server.get('/login', (req, res) => {
   let user = req.headers['x-forwarded-user'];
   // Create container from Docker API
   ishmael.run('world', [], undefined, {
+    'name': `${user}`,
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
     "ExposedPorts": {"8000/tcp":{}},
