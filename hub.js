@@ -256,8 +256,10 @@ app.on("upgrade", (req, socket, head) => {
       let entry = registry[user].params.container
       let container = ishmael.getContainer(entry.id);
       container.stop((err, data) => {
-        ishmael.pruneContainers({"label":user});
-        delete registry[user];
+        container.remove((err, data) => {
+          ishmael.pruneContainers({"label":user});
+          delete registry[user];
+        });
       });
     });
   });
