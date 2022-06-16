@@ -8,6 +8,7 @@ const cookies = require('cookie-parser');
 const crypto = require('crypto');
 const http = require('http');
 const net = require('net');
+const fs = require('fs');
 
 const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
@@ -37,6 +38,7 @@ let registry = { };
 
 const Docker = require("dockerode");
 const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
+const status = fs.statSync("/var/run/docker.sock");
 
 // Operations
 
@@ -169,6 +171,7 @@ server.get('/login', (req, res) => {
   // Create container from Docker API
   ishmael.run('world', [], undefined, {
     'name': `${user}`,
+    'label': `${user}`,
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
     "ExposedPorts": {"8000/tcp":{}},
@@ -249,9 +252,12 @@ app.on("upgrade", (req, socket, head) => {
       console.log("[ERROR] Socket error during websocket comm");
     });
     socket.on("close", () => {
-      let container = registry[user].params.container;
-      container.kill((err, data) => {
-        console.log(data);
+      console.log(`Stopping ${user}...`);
+      let entry = registry[user].params.container
+      let container = ishmael.getContainer(entry.id);
+      container.stop((err, data) => {
+        ishmael.pruneContainers({"label":user});
+        delete registry[user];
       });
     });
   });
@@ -271,16 +277,18 @@ app.on("error", err => console.log(err));
 
 //Remove the container on SIGINT or exit
 
+const spindown = () => {
+  console.log("Starting spindown...")
+  ishmael.listContainers({all:true}, (err, list) => {
+    console.log(list);
+  });
+  //let now = Math.floor(new Date().getTime() / 1000);
+  //console.log("Purging all containers ever");
+  //ishmael.pruneContainers({until: now});
+}
+
 process.on("SIGINT", (sig) => {
-  for(let entry in registry) {
-    let container = registry[entry].params.container;
-    container.remove((err, data) => {
-      console.log("[CONTAINER] Remove container");
-      ishmael.pruneContainers((label = container)=> {
-        console.log("[CONTAINER] Remove stopped container");
-      });
-    });
-    
-  }
+  console.log("[SIGINT] Received SIGINT");
+  spindown()
   process.exit();
 });
