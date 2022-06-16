@@ -293,4 +293,5 @@ async function spindown() {
 
 process.on("SIGINT", async function prune(sig) {
   await spindown();
+  process.exit();
 });
