@@ -279,6 +279,10 @@ app.on("error", err => console.log(err));
 
 //Remove the container on SIGINT or exit
 
+const exit = () => {
+  process.exit();
+};
+
 async function spindown() {
   let list = await ishmael.listContainers({all: true});
   for await (let entry of list) {
@@ -288,10 +292,9 @@ async function spindown() {
   }
   let now = Math.floor(new Date().getTime() / 1000);
   let pruned = await ishmael.pruneContainers({until: now})
-  return pruned;
+  exit();
 }
 
-process.on("SIGINT", async function prune(sig) {
-  await spindown();
-  process.exit();
-});
+process.on("exit", spindown.bind());
+process.on("SIGINT", spindown.bind());
+process.on("SIGTERM", spindown.bind());
