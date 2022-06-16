@@ -8,6 +8,7 @@ const cookies = require('cookie-parser');
 const crypto = require('crypto');
 const http = require('http');
 const net = require('net');
+const fs = require('fs');
 
 const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
@@ -37,6 +38,7 @@ let registry = { };
 
 const Docker = require("dockerode");
 const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
+const status = fs.statSync("/var/run/docker.sock");
 
 // Operations
 
@@ -168,7 +170,8 @@ server.get('/login', (req, res) => {
   let user = req.headers['x-forwarded-user'];
   // Create container from Docker API
   ishmael.run('world', [], undefined, {
-    "name": `${user}`,
+    'name': `${user}`,
+    'label': `${user}`,
     "Hostname": "term-world",
     "Env": [`VS_USER=${user}`],
     "ExposedPorts": {"8000/tcp":{}},
@@ -249,9 +252,14 @@ app.on("upgrade", (req, socket, head) => {
       console.log("[ERROR] Socket error during websocket comm");
     });
     socket.on("close", () => {
-      let container = registry[user].params.container;
-      container.kill((err, data) => {
-        console.log(data);
+      console.log(`Stopping ${user}...`);
+      let entry = registry[user].params.container
+      let container = ishmael.getContainer(entry.id);
+      container.stop((err, data) => {
+        container.remove((err, data) => {
+          ishmael.pruneContainers({"label":user});
+          delete registry[user];
+        });
       });
     });
   });
@@ -269,12 +277,24 @@ server.on("error", err => console.log(err));
  */
 app.on("error", err => console.log(err));
 
-process.on("SIGINT", (sig) => {
-  for(let entry in registry) {
-    let container = registry[entry].params.container;
-    container.kill((err, data) => {
-      console.log("[CONTAINER] Kill all");
-    });
-  }
+//Remove the container on SIGINT or exit
+
+const exit = () => {
   process.exit();
-});
+};
+
+async function spindown() {
+  let list = await ishmael.listContainers({all: true});
+  for await (let entry of list) {
+    let container = await ishmael.getContainer(entry.Id);
+    let stoppage = await container.stop();
+    let removal = await container.remove();
+  }
+  let now = Math.floor(new Date().getTime() / 1000);
+  let pruned = await ishmael.pruneContainers({until: now})
+  exit();
+}
+
+process.on("exit", spindown.bind());
+process.on("SIGINT", spindown.bind());
+process.on("SIGTERM", spindown.bind());
