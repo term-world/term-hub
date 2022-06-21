@@ -173,7 +173,10 @@ server.get('/login', (req, res) => {
     'name': `${user}`,
     'label': `${user}`,
     "Hostname": "term-world",
-    "Env": [`VS_USER=${user}`],
+    "Env": [
+      `VS_USER=${user}`
+      `DISTRICT=${district}`
+    ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
       "Binds": [`sum2022:/home`],
