@@ -3,7 +3,7 @@
 const { createLogger, format, transports } = require('winston');
 const { combine, timestamp, prettyPrint } = format;
 
-
+// Set up format options for log's console and stored file 
 const options = {
     file: {
         level: 'info',
@@ -20,6 +20,7 @@ const options = {
     },
 };
 
+// Set up logger with custume format and transport
 const err_logger = createLogger(
     {   
         format: combine(
