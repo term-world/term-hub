@@ -186,7 +186,7 @@ server.get('/login', (req, res) => {
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
-      "Binds": [`sum2022:/home`],
+      "Binds": [`sum2022:/world`],
       "PortBindings": {
         "8000/tcp": [
           {
