@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
+const err_handling = require('./error_handling');
 
 const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
@@ -187,7 +188,7 @@ server.get('/login', (req, res) => {
     }
   }, (err,data,container) => {
     // On container launch error, report error
-    console.log(`[ERROR] ${err}`);
+    err_handling.err_message(`[ERROR] ${err}`, `${user}` );
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
