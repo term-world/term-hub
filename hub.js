@@ -3,6 +3,7 @@
 // Set up server packages; create session
 
 const express = require('express');
+const env = require('dotenv').config()
 const sessions = require('express-session');
 const cookies = require('cookie-parser');
 const crypto = require('crypto');
@@ -41,6 +42,11 @@ const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 const status = fs.statSync("/var/run/docker.sock");
 
 // Operations
+
+let directory;
+fs.readFile(process.env.DIRECTORY, (err, data) => {
+  directory = JSON.parse(data);
+});
 
 /**
  * Creates random port assignment between 1000 and 65535
@@ -169,11 +175,15 @@ server.get('/login', (req, res) => {
   //console.log(res);
   let user = req.headers['x-forwarded-user'];
   // Create container from Docker API
-  ishmael.run('world', [], undefined, {
+  let district = directory[user].district;
+  ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     'name': `${user}`,
     'label': `${user}`,
     "Hostname": "term-world",
-    "Env": [`VS_USER=${user}`],
+    "Env": [
+      `VS_USER=${user}`,
+      `DISTRICT=${district}`
+    ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
       "Binds": [`sum2022:/home`],
