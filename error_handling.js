@@ -6,11 +6,13 @@ const { combine, timestamp, prettyPrint } = format;
 // Set up format options for log's console and stored file 
 const options = {
     file: {
-        level: 'info',
+        level: 'error',
         filename: 'err_list.log',
         handleExceptions: true,
         json: true,
         colorize: true,
+        process: false,
+        trace: false,
     },
     console: {
         level: 'debug',
@@ -27,7 +29,6 @@ const err_logger = createLogger(
             timestamp(),
             prettyPrint()
           ),
-        defaultMeta: { service: 'user-service' },
         transports: [
             new transports.Console(options.console),
             new transports.File(
@@ -40,12 +41,14 @@ const err_logger = createLogger(
  * Attempts to connect to throw error message once error occurs
  * @function err_message
  * @param {String}    e_mess  Message to throw when error occurs
- * @param {String}    user  User name, default to 'all' if error occur to all user
  */
 
-const err_message = (e_mess, user) => {
+const err_message = (e_mess) => {
     err_logger.info({
-        message: `[${e_mess}]` + ' happened to ' + `[${user}]`
+        message: `[${e_mess}]`,
+    });
+    err_logger.error({
+        message: `[${e_mess}]`,
     });
 }
 

@@ -188,7 +188,7 @@ server.get('/login', (req, res) => {
     }
   }, (err,data,container) => {
     // On container launch error, report error
-    err_handling.err_message(`[ERROR] ${err}`, `${user}` );
+    err_handling.err_message(`[ERROR] ${err}`);
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
@@ -223,8 +223,7 @@ server.get('/*', (req,res) => {
   const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
-    console.log("ON PROXY HANDOVER");
-    console.log(err);
+    err_handling.err_message(`[ON PROXY HANDOVER] ${err}`);
   });
 });
 
@@ -240,8 +239,7 @@ app.on("upgrade", (req, socket, head) => {
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
   wsProxy.on("error", (err) => {
-    console.log("ON PROXY UPGRADE");
-    console.log(err);
+    err_handling.err_message(`[ON PROXY UPGRADE] ${err}`);
   });
   session(req, {}, () => {
     wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
@@ -250,7 +248,7 @@ app.on("upgrade", (req, socket, head) => {
       registry[user].params.active = active;
     });
     socket.on("error", (err) => {
-      console.log("[ERROR] Socket error during websocket comm");
+      err_handling.err_message(`[ERROR] Socket error during websocket comm ${err}`);
     });
     socket.on("close", () => {
       console.log(`Stopping ${user}...`);
@@ -270,13 +268,17 @@ app.on("upgrade", (req, socket, head) => {
  * Event handler for server-side errors
  * @param {String} err  Error message
  */
-server.on("error", err => console.log(err));
+server.on("error", err => {
+  err_handling.err_message(`[ERROR] ${err}`);
+});
 
 /**
  * Event handler for proxy-side errors
  * @param {String} err  Error message
  */
-app.on("error", err => console.log(err));
+app.on("error", err => {
+  err_handling.err_message(`[ERROR] ${err}`);
+});
 
 //Remove the container on SIGINT or exit
 
