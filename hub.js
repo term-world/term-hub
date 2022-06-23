@@ -5,6 +5,7 @@
 const express = require('express');
 const env = require('dotenv').config()
 const sessions = require('express-session');
+const sessionFile = require('session-file-store')(sessions)
 const cookies = require('cookie-parser');
 const crypto = require('crypto');
 const http = require('http');
@@ -14,13 +15,16 @@ const fs = require('fs');
 const session = sessions({
   secret: crypto.randomBytes(10).toString("hex"),
   resave: true,
-  saveUninitialized: true
+  saveUninitialized: true,
+  store: new sessionFile()
 });
 
 let server = express()
 
 server.use(session);
 server.use(cookies());
+
+let sess;
 
 // Listen for incoming traffic on port 8080
 
@@ -171,9 +175,10 @@ server.get('/login', (req, res) => {
   let pid = port();
   console.log(pid);
   // Get authenticated user
-  //console.log(req);
-  //console.log(res);
   let user = req.headers['x-forwarded-user'];
+  if(!user): res.redirect("/login");
+  sess = req.session;
+  sess.user = user;
   // Create container from Docker API
   let district = directory[user].district;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
@@ -186,7 +191,7 @@ server.get('/login', (req, res) => {
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
-      "Binds": [`sum2022:/home`],
+      "Binds": [`sum2022:/world`],
       "PortBindings": {
         "8000/tcp": [
           {
@@ -225,7 +230,7 @@ server.get('/login', (req, res) => {
  * @param {Object}  res   Web response
  */
 server.get('/*', (req,res) => {
-  let user = req.headers['x-forwarded-user'];
+  let user = req.session.user;
   if(!user) res.redirect("/login");
   console.log(`${user} is attempting to login...`);
   console.log(registry);
@@ -244,7 +249,8 @@ server.get('/*', (req,res) => {
  * @param {Object}  head    ?
  */
 app.on("upgrade", (req, socket, head) => {
-  let user = req.headers['x-forwarded-user'];
+  let user = req['x-forwarded-user']
+  console.log(`SESSION: ${req.session}`)
   console.log(`${user} being upgraded...`)
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
