@@ -13,7 +13,7 @@ const net = require('net');
 const fs = require('fs');
 
 const session = sessions({
-  secret: crypto.randomBytes(10).toString("hex"),
+  secret: process.env.COOKIE_SECRET,
   resave: true,
   saveUninitialized: true,
   store: new sessionFile()
@@ -141,6 +141,14 @@ const connect = (user, fn) => {
   });
 };
 
+const aConnect = (user) => {
+	let port = registry[user].params.port
+	http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
+		res.on('end', () => {
+			return true;
+		});
+	});
+}
 /**
  * Adds user information to global registry object
  * @function updateRegistry
@@ -176,7 +184,7 @@ server.get('/login', (req, res) => {
   console.log(pid);
   // Get authenticated user
   let user = req.headers['x-forwarded-user'];
-  if(!user): res.redirect("/login");
+  if(user === undefined) { res.redirect('login'); }
   sess = req.session;
   sess.user = user;
   // Create container from Docker API
@@ -203,9 +211,9 @@ server.get('/login', (req, res) => {
   }, (err,data,container) => {
     // On container launch error, report error
     console.log(`[ERROR] ${err}`);
-  }).on('container', (container) => {
+  }).on('container', async (container) => {
     // On container creation, get container private address
-    address(container, (addr) => {
+    address(container, async (addr) => {
       console.log(`[CONTAINER] Started at ${addr}`);
       // Update global registry
       updateRegistry({
@@ -217,9 +225,11 @@ server.get('/login', (req, res) => {
         }
       });
       // Callback to redirect request
-      connect(user, () => {
-        res.redirect(`/`);
-      });
+      //connect(user, () => {
+      //  res.redirect(`/`);
+      //});
+	  let success = aConnect(user);
+	  if (success) { res.redirect(`/`) };
     })
   });
 });
@@ -231,9 +241,7 @@ server.get('/login', (req, res) => {
  */
 server.get('/*', (req,res) => {
   let user = req.session.user;
-  if(!user) res.redirect("/login");
-  console.log(`${user} is attempting to login...`);
-  console.log(registry);
+  if(user === undefined) { res.redirect('/login'); }
   const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
@@ -249,9 +257,6 @@ server.get('/*', (req,res) => {
  * @param {Object}  head    ?
  */
 app.on("upgrade", (req, socket, head) => {
-  let user = req['x-forwarded-user']
-  console.log(`SESSION: ${req.session}`)
-  console.log(`${user} being upgraded...`)
   // Create separate proxy for websocket requests to each container
   let wsProxy = httpProxy.createServer({});
   wsProxy.on("error", (err) => {
@@ -259,7 +264,9 @@ app.on("upgrade", (req, socket, head) => {
     console.log(err);
   });
   session(req, {}, () => {
-    wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
+	let user = req.session.user;
+	if(registry[user].params === undefined) { res.redirect('login'); }
+	wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
     socket.on("data", (data) => {
       let active = (new Date()).getTime();
       registry[user].params.active = active;
