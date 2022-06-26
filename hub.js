@@ -174,7 +174,7 @@ server.get('/login', (req, res) => {
   let pid = port();
   // Get authenticated user
   let user = req.headers['x-forwarded-user'] || req.session.user;
-  if(user === undefined) { res.redirect('/login'); }
+  if(user === undefined) { return res.redirect('/login'); }
   sess = req.session;
   sess.user = user;
   // Create container from Docker API
@@ -231,8 +231,11 @@ server.get('/login', (req, res) => {
  * @param {Object}  res   Web response
  */
 server.get('/*', (req,res) => {
-  let user = req.session.user;
-  //if(user === undefined) { res.redirect('/login'); }
+  let user;
+  session(req, {}, () =>  {
+    user = req.session.user;
+  });
+  if(user === undefined || registry[user] === undefined) { return res.redirect('/login'); }
   const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
