@@ -176,8 +176,10 @@ server.get('/login', (req, res) => {
   // Create container from Docker API
   let district = directory[user].district;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
-    'name': `${user}`,
-    'label': `${user}`,
+    //'name': `${user}`,
+    "Labels": {
+      "student":`${user}`
+    },
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
@@ -198,6 +200,7 @@ server.get('/login', (req, res) => {
     // On container launch error, report error
     if(err) {
       let code = err.statusCode;
+      console.log(err);
       if(code == 409) {
         let list = await ishmael.listContainers({label: user});
         emitter.emit('register',
