@@ -1,16 +1,13 @@
 "use strict";
 
-// Set up server packages; create session
-
+const fs = require('fs');
+const net = require('net');
+const http = require('http');
 const express = require('express');
 const env = require('dotenv').config()
+const cookies = require('cookie-parser');
 const sessions = require('express-session');
 const sessionFile = require('session-file-store')(sessions)
-const cookies = require('cookie-parser');
-const crypto = require('crypto');
-const http = require('http');
-const net = require('net');
-const fs = require('fs');
 
 const session = sessions({
   secret: process.env.COOKIE_SECRET,
@@ -19,7 +16,7 @@ const session = sessions({
   store: new sessionFile()
 });
 
-let server = express()
+let server = express();
 
 server.use(session);
 server.use(cookies());
@@ -36,7 +33,7 @@ const timeout = 1800000;
 
 // Create registries (ports occupied, containers running)
 
-let ports = [80, 443, 4180, 8080, 5000];
+let ports = [80, 443, 4180, 5000, 8000, 8080];
 let registry = { };
 
 // Docker setup
@@ -44,13 +41,6 @@ let registry = { };
 const Docker = require("dockerode");
 const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 const status = fs.statSync("/var/run/docker.sock");
-
-// Operations
-
-let directory;
-fs.readFile(process.env.DIRECTORY, (err, data) => {
-  directory = JSON.parse(data);
-});
 
 /**
  * Creates random port assignment between 1000 and 65535
@@ -62,10 +52,6 @@ fs.readFile(process.env.DIRECTORY, (err, data) => {
 const randomize = (lower, upper) => {
   return Math.floor(Math.random() * (upper - lower) + lower);
 }
-
-// Create random port as starting point
-
-//let pid = randomize(1000, 65535);
 
 /**
  * Discovers ports already in use
@@ -131,24 +117,14 @@ const address = (container, fn) => {
  * @param {Function}  fn    Callback function
  */
 const connect = (user, fn) => {
-  let port = registry[user].params.port
-  // Make request to the container's endpoint to establish connection
+  let port = registry[user].params.port;
   http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
     fn();
   }).on('error', (err) => {
-    // On error, continue to try connection until connection established
     connect(user, fn);
   });
 };
 
-const aConnect = (user) => {
-	let port = registry[user].params.port
-	http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
-		res.on('end', () => {
-			return true;
-		});
-	});
-}
 /**
  * Adds user information to global registry object
  * @function updateRegistry
@@ -158,20 +134,31 @@ const aConnect = (user) => {
 const updateRegistry = (store) => {
   let user = store.user;
   let params = store.params;
-  if(!registry[user]) registry[user] = { }
-  if(!registry[user].params) registry[user].params = { }
+  if(!registry[user]) registry[user] = { "params": { } }
   for(let param in params) {
     registry[user]["params"][param] = params[param]
   }
 }
 
+// Operations
+
+let directory;
+fs.readFile(process.env.DIRECTORY, (err, data) => {
+  directory = JSON.parse(data);
+});
+
+for(let entry in directory) {
+	updateRegistry({
+		user: entry,
+		params: {
+			district: directory[entry]
+		}
+	});
+}
+
 // Set up generic proxies
 
 const httpProxy = require('http-proxy');
-/*const proxy = httpProxy.createServer({
-  secure: false,
-  changeOrigin: true
-});*/
 
 /**
  * Acquires content at /login endpoint
@@ -181,10 +168,9 @@ const httpProxy = require('http-proxy');
 server.get('/login', (req, res) => {
   // Acquire random port
   let pid = port();
-  console.log(pid);
   // Get authenticated user
   let user = req.headers['x-forwarded-user'];
-  if(user === undefined) { res.redirect('login'); }
+  //if(user === undefined) { res.redirect('login'); }
   sess = req.session;
   sess.user = user;
   // Create container from Docker API
@@ -211,9 +197,9 @@ server.get('/login', (req, res) => {
   }, (err,data,container) => {
     // On container launch error, report error
     console.log(`[ERROR] ${err}`);
-  }).on('container', async (container) => {
+  }).on('container', (container) => {
     // On container creation, get container private address
-    address(container, async (addr) => {
+    address(container, (addr) => {
       console.log(`[CONTAINER] Started at ${addr}`);
       // Update global registry
       updateRegistry({
@@ -221,15 +207,14 @@ server.get('/login', (req, res) => {
         params: {
           container: container,
           address: addr,
-          port: pid
+          port: pid,
+          sockets: 0
         }
       });
       // Callback to redirect request
-      //connect(user, () => {
-      //  res.redirect(`/`);
-      //});
-	  let success = aConnect(user);
-	  if (success) { res.redirect(`/`) };
+      connect(user, () => {
+        res.redirect(`/`);
+      });
     })
   });
 });
@@ -245,46 +230,30 @@ server.get('/*', (req,res) => {
   const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
-    console.log("ON PROXY HANDOVER");
     console.log(err);
   });
 });
 
 /**
- * Acquires content at /login endpoint
+ * Handles transfer of HTTP protocol to web sockets
  * @param {Object}  req     Web request
- * @param {Object}  socket  Web response
+ * @param {Object}  socket  Socket created
  * @param {Object}  head    ?
  */
-app.on("upgrade", (req, socket, head) => {
-  // Create separate proxy for websocket requests to each container
-  let wsProxy = httpProxy.createServer({});
-  wsProxy.on("error", (err) => {
-    console.log("ON PROXY UPGRADE");
-    console.log(err);
-  });
+
+app.on('upgrade', (req, socket, head) => {
+  let user;
+  let proxy = httpProxy.createServer({});
   session(req, {}, () => {
-	let user = req.session.user;
-	if(registry[user].params === undefined) { res.redirect('login'); }
-	wsProxy.ws(req, socket, head, {target: `ws://localhost:${registry[user].params.port}`});
-    socket.on("data", (data) => {
-      let active = (new Date()).getTime();
-      registry[user].params.active = active;
-    });
-    socket.on("error", (err) => {
-      console.log("[ERROR] Socket error during websocket comm");
-    });
-    socket.on("close", () => {
-      console.log(`Stopping ${user}...`);
-      let entry = registry[user].params.container
-      let container = ishmael.getContainer(entry.id);
-      container.stop((err, data) => {
-        container.remove((err, data) => {
-          ishmael.pruneContainers({"label":user});
-          delete registry[user];
-        });
-      });
-    });
+    user = req.session.user;
+    proxy.ws(req, socket, head, {target: `http://localhost:${registry[user].params.port}/`}); 
+    registry[user].params.sockets++;
+  });
+  socket.on('close', async() => {
+    registry[user].params.sockets--;
+    if(registry[user].params.sockets == 0) {
+      await spindown(user);
+    }
   });
 });
 
@@ -306,8 +275,9 @@ const exit = () => {
   process.exit();
 };
 
-async function spindown() {
-  let list = await ishmael.listContainers({all: true});
+async function spindown(user) {
+  let args = user ? {label: user} : {all: true};
+  let list = await ishmael.listContainers(args);
   for await (let entry of list) {
     let container = await ishmael.getContainer(entry.Id);
     let stoppage = await container.stop();
@@ -315,9 +285,9 @@ async function spindown() {
   }
   let now = Math.floor(new Date().getTime() / 1000);
   let pruned = await ishmael.pruneContainers({until: now})
-  exit();
+  if(!user) { exit(); }
 }
 
-process.on("exit", spindown.bind());
-process.on("SIGINT", spindown.bind());
-process.on("SIGTERM", spindown.bind());
+process.once("exit", spindown.bind());
+process.once("SIGINT", spindown.bind());
+process.once("SIGTERM", spindown.bind());
