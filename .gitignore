@@ -105,3 +105,6 @@ dist
 
 # JSDoc documentation
 out/
+
+# Session files
+sessions/
