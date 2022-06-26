@@ -262,6 +262,7 @@ app.on('upgrade', (req, socket, head) => {
     registry[user].params.sockets--;
     if(registry[user].params.sockets == 0) {
       emitter.emit('SIGUSER',user);
+      delete registry[user];
     }
   });
 });
