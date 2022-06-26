@@ -4,10 +4,11 @@ const fs = require('fs');
 const net = require('net');
 const http = require('http');
 const express = require('express');
-const env = require('dotenv').config()
+const EventEmitter = require('events');
+const env = require('dotenv').config();
 const cookies = require('cookie-parser');
 const sessions = require('express-session');
-const sessionFile = require('session-file-store')(sessions)
+const sessionFile = require('session-file-store')(sessions);
 
 const session = sessions({
   secret: process.env.COOKIE_SECRET,
@@ -41,6 +42,10 @@ let registry = { };
 const Docker = require("dockerode");
 const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
 const status = fs.statSync("/var/run/docker.sock");
+
+// Create event emitter
+
+const emitter = new EventEmitter();
 
 /**
  * Creates random port assignment between 1000 and 65535
@@ -85,7 +90,6 @@ const port = () => {
   while(true) {
     let used = occupied(port);
     if(!ports.hasOwnProperty(pid)) {
-      console.log(pid);
       ports.push(pid);
       break;
     }
@@ -169,8 +173,8 @@ server.get('/login', (req, res) => {
   // Acquire random port
   let pid = port();
   // Get authenticated user
-  let user = req.headers['x-forwarded-user'];
-  //if(user === undefined) { res.redirect('login'); }
+  let user = req.headers['x-forwarded-user'] || req.session.user;
+  if(user === undefined) { res.redirect('/login'); }
   sess = req.session;
   sess.user = user;
   // Create container from Docker API
@@ -196,7 +200,9 @@ server.get('/login', (req, res) => {
     }
   }, (err,data,container) => {
     // On container launch error, report error
-    console.log(`[ERROR] ${err}`);
+    if(err) {
+      console.log(err);
+    }
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
@@ -226,7 +232,7 @@ server.get('/login', (req, res) => {
  */
 server.get('/*', (req,res) => {
   let user = req.session.user;
-  if(user === undefined) { res.redirect('/login'); }
+  //if(user === undefined) { res.redirect('/login'); }
   const proxy = httpProxy.createServer({});
   proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
   proxy.on("error", (err) => {
@@ -249,10 +255,10 @@ app.on('upgrade', (req, socket, head) => {
     proxy.ws(req, socket, head, {target: `http://localhost:${registry[user].params.port}/`}); 
     registry[user].params.sockets++;
   });
-  socket.on('close', async() => {
+  socket.on('close', () => {
     registry[user].params.sockets--;
     if(registry[user].params.sockets == 0) {
-      await spindown(user);
+      emitter.emit('SIGUSER',user);
     }
   });
 });
@@ -275,8 +281,8 @@ const exit = () => {
   process.exit();
 };
 
-async function spindown(user) {
-  let args = user ? {label: user} : {all: true};
+async function spindown(sig) {
+  let args = sig[0] == 'USER' ? {label: sig[1]} : {all: true};
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
     let container = await ishmael.getContainer(entry.Id);
@@ -285,9 +291,12 @@ async function spindown(user) {
   }
   let now = Math.floor(new Date().getTime() / 1000);
   let pruned = await ishmael.pruneContainers({until: now})
-  if(!user) { exit(); }
+  if(args.all) { exit(); }
 }
 
 process.once("exit", spindown.bind());
 process.once("SIGINT", spindown.bind());
 process.once("SIGTERM", spindown.bind());
+emitter.once('SIGUSER', async (user) => {
+  await spindown(['USER', user]);
+});
