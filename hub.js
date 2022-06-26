@@ -176,7 +176,6 @@ server.get('/login', (req, res) => {
   // Create container from Docker API
   let district = directory[user].district;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
-    //'name': `${user}`,
     "Labels": {
       "student":`${user}`
     },
@@ -278,6 +277,12 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
+    if(
+      user === undefined || 
+      registry[user] === undefined
+    ) { 
+      return res.redirect('/login'); 
+    }
     proxy.ws(req, socket, head, 
       {target: `http://localhost:${registry[user].params.port}/`}
     ); 
