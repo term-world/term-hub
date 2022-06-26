@@ -29,9 +29,6 @@ let sess;
 const app = http.createServer(server);
 app.listen(8080);
 
-// Define constants
-const timeout = 1800000;
-
 // Create registries (ports occupied, containers running)
 
 let ports = [80, 443, 4180, 5000, 8000, 8080];
@@ -41,7 +38,6 @@ let registry = { };
 
 const Docker = require("dockerode");
 const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
-const status = fs.statSync("/var/run/docker.sock");
 
 // Create event emitter
 
@@ -129,38 +125,36 @@ const connect = (user, fn) => {
   });
 };
 
-/**
- * Adds user information to global registry object
- * @function updateRegistry
- * @private
- * @param {Object} store  Object containing various parameters to add to the registry
- */
-const updateRegistry = (store) => {
-  let user = store.user;
-  let params = store.params;
-  if(!registry[user]) registry[user] = { "params": { } }
-  for(let param in params) {
-    registry[user]["params"][param] = params[param]
-  }
-}
+// Event used to add information to global container registry
 
-// Operations
+emitter.on('register', (store) => {
+  if(!registry[store.user]) registry[store.user] = { "params": { } };
+  for(let param in store.params) {
+    registry[store.user].params[param] = store.params[param]
+  }
+});
+
+// Read directory to pass the DISTRICT environment variable
 
 let directory;
 fs.readFile(process.env.DIRECTORY, (err, data) => {
   directory = JSON.parse(data);
 });
 
+// Update the internal registry to add new user information
+
 for(let entry in directory) {
-	updateRegistry({
-		user: entry,
-		params: {
-			district: directory[entry]
-		}
-	});
+  emitter.emit('register',
+    {
+        user: entry, 
+        params: {
+          district: dictionary[entry]
+        }
+    }
+  );
 }
 
-// Set up generic proxies
+// Set proxy object for web and socket proxies
 
 const httpProxy = require('http-proxy');
 
@@ -172,9 +166,11 @@ const httpProxy = require('http-proxy');
 server.get('/login', (req, res) => {
   // Acquire random port
   let pid = port();
-  // Get authenticated user
+  // Get authenticated user from header or session
   let user = req.headers['x-forwarded-user'] || req.session.user;
+  // If neither header or session, redirect to authentication
   if(user === undefined) { return res.redirect('/login'); }
+  // Set user property of session
   sess = req.session;
   sess.user = user;
   // Create container from Docker API
@@ -198,25 +194,42 @@ server.get('/login', (req, res) => {
         ]
       }
     }
-  }, (err,data,container) => {
+  }, async(err,data,container) => {
     // On container launch error, report error
     if(err) {
-      console.log(err);
+      let code = err.statusCode;
+      if(code == 409) {
+        let list = await ishmael.listContainers({label: user});
+        emitter.emit('register',
+          {
+              user: user,
+              params: {
+                port: pid,
+                sockets: 0,
+                district: district,
+                container: container
+              }
+          }
+        );
+        connect(user, () => {
+          res.redirect(`/`);
+        });
+      }
     }
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
-      console.log(`[CONTAINER] Started at ${addr}`);
-      // Update global registry
-      updateRegistry({
-        user: user,
-        params: {
-          container: container,
-          address: addr,
-          port: pid,
-          sockets: 0
+      emitter.emit('register',
+        {
+          user: user,
+          params: {
+            port: pid,
+            sockets: 0,
+            address: addr,
+            container: container
+          }
         }
-      });
+      );
       // Callback to redirect request
       connect(user, () => {
         res.redirect(`/`);
@@ -235,9 +248,16 @@ server.get('/*', (req,res) => {
   session(req, {}, () =>  {
     user = req.session.user;
   });
-  if(user === undefined || registry[user] === undefined) { return res.redirect('/login'); }
+  if(
+    user === undefined || 
+    registry[user] === undefined
+  ) { 
+    return res.redirect('/login'); 
+  }
   const proxy = httpProxy.createServer({});
-  proxy.web(req, res, {target: `http://0.0.0.0:${registry[user].params.port}/`});
+  proxy.web(req, res, 
+    {target: `http://localhost:${registry[user].params.port}/`}
+  );
   proxy.on("error", (err) => {
     console.log(err);
   });
@@ -255,7 +275,9 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
-    proxy.ws(req, socket, head, {target: `http://localhost:${registry[user].params.port}/`}); 
+    proxy.ws(req, socket, head, 
+      {target: `http://localhost:${registry[user].params.port}/`}
+    ); 
     registry[user].params.sockets++;
   });
   socket.on('close', () => {
@@ -301,6 +323,9 @@ async function spindown(sig) {
 process.once("exit", spindown.bind());
 process.once("SIGINT", spindown.bind());
 process.once("SIGTERM", spindown.bind());
-emitter.once('SIGUSER', async (user) => {
+
+// Nonce custom signal to indicate single user container spindown
+
+emitter.on('SIGUSER', async (user) => {
   await spindown(['USER', user]);
 });
