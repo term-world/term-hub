@@ -146,7 +146,7 @@ fs.readFile(process.env.DIRECTORY, (err, data) => {
 for(let entry in directory) {
   emitter.emit('register',
     {
-        user: entry, 
+        user: entry,
         params: {
           district: dictionary[entry]
         }
@@ -167,7 +167,10 @@ server.get('/login', (req, res) => {
   // Acquire random port
   let pid = port();
   // Get authenticated user from header or session
-  let user = req.headers['x-forwarded-user'] || req.session.user;
+  let user;
+  session(req, {}, () => {
+    user =  req.headers['x-forwarded-user'] || req.session.user;
+  });
   // If neither header or session, redirect to authentication
   if(user === undefined) { return res.redirect('/login'); }
   // Set user property of session
@@ -176,6 +179,7 @@ server.get('/login', (req, res) => {
   // Create container from Docker API
   let district = directory[user].district;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
+    "name": `${user}`,
     "Labels": {
       "student":`${user}`
     },
@@ -196,28 +200,7 @@ server.get('/login', (req, res) => {
       }
     }
   }, async(err,data,container) => {
-    // On container launch error, report error
-    if(err) {
-      let code = err.statusCode;
-      console.log(err);
-      if(code == 409) {
-        let list = await ishmael.listContainers({label: user});
-        emitter.emit('register',
-          {
-              user: user,
-              params: {
-                port: pid,
-                sockets: 0,
-                district: district,
-                container: container
-              }
-          }
-        );
-        connect(user, () => {
-          res.redirect(`/`);
-        });
-      }
-    }
+    console.log(err);
   }).on('container', (container) => {
     // On container creation, get container private address
     address(container, (addr) => {
