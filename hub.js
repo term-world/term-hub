@@ -13,7 +13,7 @@ const sessionFile = require('session-file-store')(sessions);
 const session = sessions({
   secret: process.env.COOKIE_SECRET,
   resave: true,
-  saveUninitialized: true,
+  saveUninitialized: false,
   store: new sessionFile()
 });
 
@@ -170,12 +170,12 @@ server.get('/login', (req, res) => {
   let user;
   session(req, {}, () => {
     user =  req.headers['x-forwarded-user'] || req.session.user;
+    // Set user property of session
+    sess = req.session;
+    sess.user = user;
   });
   // If neither header or session, redirect to authentication
   if(user === undefined) { return res.redirect('/login'); }
-  // Set user property of session
-  sess = req.session;
-  sess.user = user;
   // Create container from Docker API
   let district = directory[user].district;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
