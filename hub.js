@@ -179,6 +179,7 @@ server.get('/login', (req, res) => {
   if(user === undefined) { return res.redirect('/login'); }
   // Create container from Docker API
   let district = directory[user].district;
+  let districtId = directory[user].gid;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Labels": {
@@ -187,7 +188,8 @@ server.get('/login', (req, res) => {
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
-      `DISTRICT=${district}`
+      `DISTRICT=${district}`,
+      `GID=${districtId}`
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
@@ -261,12 +263,6 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
-    if(
-      user === undefined ||
-      registry[user] === undefined
-    ) {
-      return res.redirect('/login');
-    }
     proxy.ws(req, socket, head,
       {target: `http://localhost:${registry[user].params.port}/`}
     );
