@@ -202,7 +202,7 @@ server.get('/login', (req, res) => {
         ]
       }
     }
-  }, async(err,data,container) => {
+  }, (err,data,container) => {
     if(err) { console.log(err); }
   }).on('container', (container) => {
     // On container creation, get container private address
