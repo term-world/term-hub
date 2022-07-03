@@ -237,13 +237,13 @@ server.get('/*', (req,res) => {
     user = req.session.user;
   });
   if(
-    user === undefined || 
+    user === undefined ||
     registry[user] === undefined
-  ) { 
-    return res.redirect('/login'); 
+  ) {
+    return res.redirect('/login');
   }
   const proxy = httpProxy.createServer({});
-  proxy.web(req, res, 
+  proxy.web(req, res,
     {target: `http://localhost:${registry[user].params.port}/`}
   );
   proxy.on("error", (err) => {
@@ -267,6 +267,9 @@ app.on('upgrade', (req, socket, head) => {
       {target: `http://localhost:${registry[user].params.port}/`}
     );
     registry[user].params.sockets++;
+  });
+  socket.on('ping', () => {
+    socket.pong();
   });
   socket.on('close', () => {
     if(!interrupt){
