@@ -271,17 +271,17 @@ app.on('upgrade', (req, socket, head) => {
   socket.on('ping', () => {
     socket.pong();
   });
-  socket.on('close', () => {
-    if(!interrupt){
-      registry[user].params.sockets--;
-      if(registry[user].params.sockets == 0) {
-        emitter.emit('SIGUSER',user);
-        delete registry[user];
-      }
-    }
-    socket.end();
-    socket.destroy();
-  });
+  //socket.on('close', () => {
+  //  if(!interrupt){
+  //    registry[user].params.sockets--;
+  //    if(registry[user].params.sockets == 0) {
+  //      emitter.emit('SIGUSER',user);
+  //      delete registry[user];
+  //    }
+  //  }
+  //  socket.end();
+  //  socket.destroy();
+  //});
 });
 
 /**
