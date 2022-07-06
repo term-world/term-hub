@@ -292,7 +292,7 @@ app.on("error", err => console.log(err));
 
 // Remove containers after idle status (TIMEOUT in seconds)
 
-let timeout = process.env.TIMEOUT;
+let timeout = process.env.TIMEOUT || 900;
 
 setInterval(() => {
   for(let user in registry) {
