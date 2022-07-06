@@ -254,6 +254,7 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
+    if(user === undefined) { return; }
     proxy.ws(req, socket, head,
       {target: `http://localhost:${registry[user].params.port}/`}
     );
@@ -302,7 +303,6 @@ setInterval(() => {
       if(!interrupt) {
         registry[user].params.sockets--;
         if(registry[user].params.sockets == 0) {
-          console.log("Kills idlez ded.");
           emitter.emit('SIGUSER',user);
           delete registry[user];
         }
