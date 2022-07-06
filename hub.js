@@ -55,6 +55,10 @@ const randomize = (lower, upper) => {
   return Math.floor(Math.random() * (upper - lower) + lower);
 }
 
+const now = () => {
+  return Math.floor(new Date().getTime() / 1000);
+}
+
 /**
  * Discovers ports already in use
  * @function occupied
@@ -136,24 +140,11 @@ emitter.on('register', (store) => {
 });
 
 // Read directory to pass the DISTRICT environment variable
-
 let directory;
+
 fs.readFile(process.env.DIRECTORY, (err, data) => {
   directory = JSON.parse(data);
 });
-
-// Update the internal registry to add new user information
-
-for(let entry in directory) {
-  emitter.emit('register',
-    {
-        user: entry,
-        params: {
-          district: dictionary[entry]
-        }
-    }
-  );
-}
 
 // Set proxy object for web and socket proxies
 
@@ -271,17 +262,20 @@ app.on('upgrade', (req, socket, head) => {
   socket.on('ping', () => {
     socket.pong();
   });
-  //socket.on('close', () => {
-  //  if(!interrupt){
-  //    registry[user].params.sockets--;
-  //    if(registry[user].params.sockets == 0) {
-  //      emitter.emit('SIGUSER',user);
-  //      delete registry[user];
-  //    }
-  //  }
-  //  socket.end();
-  //  socket.destroy();
-  //});
+  socket.on('data', () => {
+    emitter.emit('register',
+      {
+        user: user,
+        params: {
+          active: now()
+        }
+      }
+    );
+  });
+  socket.on('close', () => {
+    socket.end();
+    socket.destroy();
+  });
 });
 
 /**
@@ -296,6 +290,26 @@ server.on("error", err => console.log(err));
  */
 app.on("error", err => console.log(err));
 
+// Remove containers after idle status (TIMEOUT in seconds)
+
+let timeout = process.env.TIMEOUT || 900;
+
+setInterval(() => {
+  for(let user in registry) {
+    let lastActive = registry[user].params.active;
+    if (now() - lastActive > timeout) {
+      if(!interrupt) {
+        registry[user].params.sockets--;
+        if(registry[user].params.sockets == 0) {
+          console.log("Kills idlez ded.");
+          emitter.emit('SIGUSER',user);
+          delete registry[user];
+        }
+      }
+    }
+  }
+}, 10000);
+
 //Remove the container on SIGINT or exit
 
 const exit = () => {
@@ -308,12 +322,10 @@ async function spindown(sig) {
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
     let container = await ishmael.getContainer(entry.Id);
-    console.log(`Killing ${entry.Id}`);
     let stoppage = await container.stop();
     let removal = await container.remove();
   }
-  let now = Math.floor(new Date().getTime() / 1000);
-  let pruned = await ishmael.pruneContainers({until: now})
+  let pruned = await ishmael.pruneContainers({until: now()})
   if(args.all) { exit(); }
 }
 
