@@ -297,7 +297,8 @@ let timeout = process.env.TIMEOUT || 900;
 setInterval(() => {
   for(let user in registry) {
     let lastActive = registry[user].params.active;
-    if (now() - lastActive > timeout) {
+    let timeElapsed = now() - lastActive;
+    if (timeElapsed > timeout) {
       if(!interrupt) {
         registry[user].params.sockets--;
         if(registry[user].params.sockets == 0) {
