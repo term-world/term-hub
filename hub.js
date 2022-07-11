@@ -55,6 +55,10 @@ const randomize = (lower, upper) => {
   return Math.floor(Math.random() * (upper - lower) + lower);
 }
 
+const now = () => {
+  return Math.floor(new Date().getTime() / 1000);
+}
+
 /**
  * Discovers ports already in use
  * @function occupied
@@ -136,24 +140,11 @@ emitter.on('register', (store) => {
 });
 
 // Read directory to pass the DISTRICT environment variable
-
 let directory;
+
 fs.readFile(process.env.DIRECTORY, (err, data) => {
   directory = JSON.parse(data);
 });
-
-// Update the internal registry to add new user information
-
-for(let entry in directory) {
-  emitter.emit('register',
-    {
-        user: entry,
-        params: {
-          district: dictionary[entry]
-        }
-    }
-  );
-}
 
 // Set proxy object for web and socket proxies
 
@@ -179,15 +170,14 @@ server.get('/login', (req, res) => {
   if(user === undefined) { return res.redirect('/login'); }
   // Create container from Docker API
   let district = directory[user].district;
+  let districtId = directory[user].gid;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
-    "Labels": {
-      "student":`${user}`
-    },
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
-      `DISTRICT=${district}`
+      `DISTRICT=${district}`,
+      `GID=${districtId}`
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
@@ -200,7 +190,7 @@ server.get('/login', (req, res) => {
         ]
       }
     }
-  }, async(err,data,container) => {
+  }, (err,data,container) => {
     if(err) { console.log(err); }
   }).on('container', (container) => {
     // On container creation, get container private address
@@ -235,13 +225,13 @@ server.get('/*', (req,res) => {
     user = req.session.user;
   });
   if(
-    user === undefined || 
+    user === undefined ||
     registry[user] === undefined
-  ) { 
-    return res.redirect('/login'); 
+  ) {
+    return res.redirect('/login');
   }
   const proxy = httpProxy.createServer({});
-  proxy.web(req, res, 
+  proxy.web(req, res,
     {target: `http://localhost:${registry[user].params.port}/`}
   );
   proxy.on("error", (err) => {
@@ -261,25 +251,26 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
-    if(
-      user === undefined ||
-      registry[user] === undefined
-    ) {
-      return res.redirect('/login');
-    }
+    if(user === undefined) { return; }
     proxy.ws(req, socket, head,
       {target: `http://localhost:${registry[user].params.port}/`}
     );
     registry[user].params.sockets++;
   });
-  socket.on('close', () => {
-    if(!interrupt){
-      registry[user].params.sockets--;
-      if(registry[user].params.sockets == 0) {
-        emitter.emit('SIGUSER',user);
-        delete registry[user];
+  socket.on('ping', () => {
+    socket.pong();
+  });
+  socket.on('data', () => {
+    emitter.emit('register',
+      {
+        user: user,
+        params: {
+          active: now()
+        }
       }
-    }
+    );
+  });
+  socket.on('close', () => {
     socket.end();
     socket.destroy();
   });
@@ -297,6 +288,25 @@ server.on("error", err => console.log(err));
  */
 app.on("error", err => console.log(err));
 
+// Remove containers after idle status (TIMEOUT in seconds)
+
+let timeout = process.env.TIMEOUT || 900;
+
+setInterval(() => {
+  const timed = Object
+    .keys(registry)
+    .filter((user, idx, self) => {
+      let lastActive = registry[user].params.active;
+      return now() - lastActive > timeout;
+    });
+  for (let entry in timed) {
+    let user = timed[entry];
+    let id = registry[user].params.container.id;
+    emitter.emit('SIGUSER', id);
+    delete registry[user];
+  }
+}, 10000);
+
 //Remove the container on SIGINT or exit
 
 const exit = () => {
@@ -304,7 +314,7 @@ const exit = () => {
 };
 
 async function spindown(sig) {
-  let args = sig[0] == 'USER' ? {label: sig[1]} : {all: true};
+  let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[1]}`]} } : {all: true};
   if(args.all) { interrupt = true; }
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
@@ -313,17 +323,15 @@ async function spindown(sig) {
     let stoppage = await container.stop();
     let removal = await container.remove();
   }
-  let now = Math.floor(new Date().getTime() / 1000);
-  let pruned = await ishmael.pruneContainers({until: now})
+  let pruned = await ishmael.pruneContainers({until: now()})
   if(args.all) { exit(); }
 }
 
-process.once("exit", spindown.bind());
-process.once("SIGINT", spindown.bind());
-process.once("SIGTERM", spindown.bind());
+process.on("SIGINT", spindown.bind());
+process.on("SIGTERM", spindown.bind());
 
 // Nonce custom signal to indicate single user container spindown
 
-emitter.once('SIGUSER', async (user) => {
-  await spindown(['USER', user]);
+emitter.once('SIGUSER', async (id) => {
+  await spindown(['USER', id]);
 });
