@@ -173,9 +173,6 @@ server.get('/login', (req, res) => {
   let districtId = directory[user].gid;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
-    "Labels": {
-      "student":`${user}`
-    },
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
@@ -296,18 +293,17 @@ app.on("error", err => console.log(err));
 let timeout = process.env.TIMEOUT || 900;
 
 setInterval(() => {
-  for(let user in registry) {
-    let lastActive = registry[user].params.active;
-    let timeElapsed = now() - lastActive;
-    if (timeElapsed > timeout) {
-      if(!interrupt) {
-        registry[user].params.sockets--;
-        if(registry[user].params.sockets == 0) {
-          emitter.emit('SIGUSER',user);
-          delete registry[user];
-        }
-      }
-    }
+  const timed = Object
+    .keys(registry)
+    .filter((user, idx, self) => {
+      let lastActive = registry[user].params.active;
+      return now() - lastActive > timeout;
+    });
+  for (let entry in timed) {
+    let user = timed[entry];
+    let id = registry[user].params.container.id;
+    emitter.emit('SIGUSER', id);
+    delete registry[user];
   }
 }, 10000);
 
@@ -318,11 +314,12 @@ const exit = () => {
 };
 
 async function spindown(sig) {
-  let args = sig[0] == 'USER' ? {label: sig[1]} : {all: true};
+  let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[1]}`]} } : {all: true};
   if(args.all) { interrupt = true; }
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
     let container = await ishmael.getContainer(entry.Id);
+    console.log(`Killing ${entry.Id}`);
     let stoppage = await container.stop();
     let removal = await container.remove();
   }
@@ -330,12 +327,11 @@ async function spindown(sig) {
   if(args.all) { exit(); }
 }
 
-process.once("exit", spindown.bind());
-process.once("SIGINT", spindown.bind());
-process.once("SIGTERM", spindown.bind());
+process.on("SIGINT", spindown.bind());
+process.on("SIGTERM", spindown.bind());
 
 // Nonce custom signal to indicate single user container spindown
 
-emitter.once('SIGUSER', async (user) => {
-  await spindown(['USER', user]);
+emitter.once('SIGUSER', async (id) => {
+  await spindown(['USER', id]);
 });
