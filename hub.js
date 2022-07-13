@@ -325,7 +325,6 @@ async function spindown(sig) {
   }
   let pruned = await ishmael.pruneContainers({until: now()})
   if(args.all) { exit(); }
-  return;
 }
 
 process.on("SIGINT", spindown.bind());
@@ -333,6 +332,6 @@ process.on("SIGTERM", spindown.bind());
 
 // Nonce custom signal to indicate single user container spindown
 
-emitter.once('SIGUSER', (id) => {
+emitter.on('SIGUSER', (id) => {
   spindown(['USER', id]);
 });
