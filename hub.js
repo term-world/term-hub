@@ -321,7 +321,6 @@ async function spindown(sig) {
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
     let container = await ishmael.getContainer(entry.Id);
-    console.log(`Killing ${entry.Id}`);
     let stoppage = await container.stop();
     let removal = await container.remove();
   }
@@ -335,6 +334,6 @@ process.on("SIGTERM", spindown.bind());
 
 // Nonce custom signal to indicate single user container spindown
 
-emitter.once('SIGUSER', async (id) => {
-  await spindown(['USER', id]);
+emitter.once('SIGUSER', (id) => {
+  spindown(['USER', id]);
 });
