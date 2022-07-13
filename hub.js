@@ -302,6 +302,7 @@ setInterval(() => {
   for (let entry in timed) {
     let user = timed[entry];
     let id = registry[user].params.container.id;
+    console.log(`${user} TIMED OUT.`);
     emitter.emit('SIGUSER', id);
     delete registry[user];
   }
@@ -315,6 +316,7 @@ const exit = () => {
 
 async function spindown(sig) {
   let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[1]}`]} } : {all: true};
+  console.log(args);
   if(args.all) { interrupt = true; }
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
@@ -325,6 +327,7 @@ async function spindown(sig) {
   }
   let pruned = await ishmael.pruneContainers({until: now()})
   if(args.all) { exit(); }
+  return;
 }
 
 process.on("SIGINT", spindown.bind());
