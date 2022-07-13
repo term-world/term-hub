@@ -302,7 +302,6 @@ setInterval(() => {
   for (let entry in timed) {
     let user = timed[entry];
     let id = registry[user].params.container.id;
-    console.log(`${user} TIMED OUT.`);
     emitter.emit('SIGUSER', id);
     delete registry[user];
   }
