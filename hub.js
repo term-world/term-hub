@@ -181,7 +181,7 @@ server.get('/login', (req, res) => {
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
-      "Binds": [`sum2022:/world`],
+      "Binds": [`${process.env.VOLUME}:/world`],
       "PortBindings": {
         "8000/tcp": [
           {
