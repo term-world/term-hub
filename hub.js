@@ -169,6 +169,7 @@ server.get('/login', (req, res) => {
   // If neither header or session, redirect to authentication
   if(user === undefined) { return res.redirect('/login'); }
   // Create container from Docker API
+  let userId = directory[user].uid;
   let district = directory[user].district;
   let districtId = directory[user].gid;
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
@@ -176,12 +177,13 @@ server.get('/login', (req, res) => {
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
+      `VS_USER_ID=${userId}`,
       `DISTRICT=${district}`,
       `GID=${districtId}`
     ],
     "ExposedPorts": {"8000/tcp":{}},
     "HostConfig": {
-      "Binds": [`sum2022:/world`],
+      "Binds": [`${process.env.VOLUME}:/world`],
       "PortBindings": {
         "8000/tcp": [
           {

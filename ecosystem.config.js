@@ -2,6 +2,8 @@ module.exports = {
   apps : [{
     name   : "term-hub",
     script : "./hub.js",
-    exec_mode: "cluster"
+    exec_mode: "fork",
+    watch: [".env"],
+    ignore_watch:["sessions"]
   }]
 }
