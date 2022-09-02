@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require('fs');
+const os = require('os');
 const net = require('net');
 const http = require('http');
 const express = require('express');
@@ -156,6 +157,10 @@ const httpProxy = require('http-proxy');
  * @param {Object}  res   Web response
  */
 server.get('/login', (req, res) => {
+  // Acquire registry
+  fs.readFile(process.env.DIRECTORY, (err, data) => {
+    directory = JSON.parse(data);
+  });
   // Acquire random port
   let pid = port();
   // Get authenticated user from header or session
@@ -167,7 +172,8 @@ server.get('/login', (req, res) => {
     sess.user = user;
   });
   // If neither header or session, redirect to authentication
-  if(user === undefined) { return res.redirect('/login'); }
+  if(user === undefined) { //return res.redirect('/login'); 
+    }
   // Create container from Docker API
   let userId = directory[user].uid;
   let district = directory[user].district;
@@ -253,7 +259,7 @@ app.on('upgrade', (req, socket, head) => {
   let proxy = httpProxy.createServer({});
   session(req, {}, () => {
     user = req.session.user;
-    if(user === undefined) { return; }
+    if(user === undefined || registry[user] === undefined) { return; }
     proxy.ws(req, socket, head,
       {target: `http://localhost:${registry[user].params.port}/`}
     );
@@ -301,12 +307,31 @@ setInterval(() => {
       let lastActive = registry[user].params.active;
       return now() - lastActive > timeout;
     });
+  console.log(timed);
   for (let entry in timed) {
     let user = timed[entry];
     let id = registry[user].params.container.id;
-    emitter.emit('SIGUSER', id);
+    emitter.emit('SIGUSER', user, id);
     delete registry[user];
   }
+}, 10000);
+
+// PRUNE PATROL
+
+setInterval(async () => {
+    let list = await ishmael.listContainers({all: true});
+    let pruned = await ishmael.pruneContainers({until: now()});
+    let banished = pruned['ContainersDeleted'];
+    const remove = Object
+      .keys(registry)
+      .filter((id, idx, self) => {
+        return banished.indexOf(id);
+      });
+    remove.forEach(elem => {
+        let user = elem;
+        let container = registry[user];
+        emitter.emit('SIGUSER', user, container);
+    });
 }, 10000);
 
 //Remove the container on SIGINT or exit
@@ -316,8 +341,9 @@ const exit = () => {
 };
 
 async function spindown(sig) {
-  let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[1]}`]} } : {all: true};
-  console.log(args);
+  let user = sig[1];
+  let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[2]}`]} } : {all: true};
+  delete registry[user];
   if(args.all) { interrupt = true; }
   let list = await ishmael.listContainers(args);
   for await (let entry of list) {
@@ -334,6 +360,7 @@ process.on("SIGTERM", spindown.bind());
 
 // Nonce custom signal to indicate single user container spindown
 
-emitter.on('SIGUSER', (id) => {
-  spindown(['USER', id]);
+emitter.on('SIGUSER', (user, id) => {
+  console.log(`SINGLE USER SPIN DOWN: ${user}`)
+  spindown(['USER', user, id]);
 });
