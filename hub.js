@@ -172,12 +172,13 @@ server.get('/login', (req, res) => {
     sess.user = user;
   });
   // If neither header or session, redirect to authentication
-  if(user === undefined) { //return res.redirect('/login'); 
+  if(user === undefined) { //return res.redirect('/login');
     }
   // Create container from Docker API
   let userId = directory[user].uid;
   let district = directory[user].district;
   let districtId = directory[user].gid;
+  console.log(`STARTING FOR ${user}`);
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
@@ -243,7 +244,7 @@ server.get('/*', (req,res) => {
     {target: `http://localhost:${registry[user].params.port}/`}
   );
   proxy.on("error", (err) => {
-    console.log(err);
+    console.log(`PROXY ERROR (1): ${err}`);
   });
 });
 
@@ -264,6 +265,9 @@ app.on('upgrade', (req, socket, head) => {
       {target: `http://localhost:${registry[user].params.port}/`}
     );
     registry[user].params.sockets++;
+  });
+  proxy.on("error", (err) => {
+    console.log(`PROXY ERROR (2): ${err}`);
   });
   socket.on('ping', () => {
     socket.pong();
@@ -325,7 +329,9 @@ setInterval(async () => {
     const remove = Object
       .keys(registry)
       .filter((id, idx, self) => {
-        return banished.indexOf(id);
+        if(banished) {
+          return banished.indexOf(id);
+        }
       });
     remove.forEach(elem => {
         let user = elem;
