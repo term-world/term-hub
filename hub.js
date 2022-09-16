@@ -122,13 +122,34 @@ const address = (container, fn) => {
  * @param {String}    user  Username of user from x-forwarded-user
  * @param {Function}  fn    Callback function
  */
-const connect = (user, fn) => {
-  let port = registry[user].params.port;
+const connect = async (user, fn) => {
+  let port;
+  let container = await ishmael.listContainers({names: user});
+  for await(let info of container){
+    port = info.Ports[0].PublicPort;
+  }
   http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
     fn();
   }).on('error', (err) => {
     connect(user, fn);
   });
+};
+
+/**
+ * Queries docker container pool for users with running containers
+ * @function alive
+ * @private
+ * @param {String}    user  Username of user from x-forwarded-user
+ */
+const alive = async (user) => {
+  let list = await ishmael.listContainers({all: true});
+  for(let entry of list) {
+    let names = entry.Names;
+    if(names.includes(`/${user}`)){
+      return true
+    }
+  }
+  return false;
 };
 
 // Event used to add information to global container registry
@@ -156,7 +177,7 @@ const httpProxy = require('http-proxy');
  * @param {Object}  req   Web request
  * @param {Object}  res   Web response
  */
-server.get('/login', (req, res) => {
+server.get('/login', async(req, res) => {
   // Acquire registry
   fs.readFile(process.env.DIRECTORY, (err, data) => {
     directory = JSON.parse(data);
@@ -171,14 +192,13 @@ server.get('/login', (req, res) => {
     sess = req.session;
     sess.user = user;
   });
-  // If neither header or session, redirect to authentication
-  if(user === undefined) { //return res.redirect('/login');
-    }
+  // If user is already attached to a container
+  let isAlive = await alive(user);
+  if(isAlive){ connect(user, () => { res.redirect("/"); res.end(); }); return; }
   // Create container from Docker API
   let userId = directory[user].uid;
   let district = directory[user].district;
   let districtId = directory[user].gid;
-  console.log(`STARTING FOR ${user}`);
   ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
@@ -243,8 +263,10 @@ server.get('/*', (req,res) => {
   proxy.web(req, res,
     {target: `http://localhost:${registry[user].params.port}/`}
   );
-  proxy.on("error", (err) => {
+  proxy.on("error", (err, req, res) => {
     console.log(`PROXY ERROR (1): ${err}`);
+    delete registry[user];
+    res.redirect("/login");
   });
 });
 
@@ -266,8 +288,10 @@ app.on('upgrade', (req, socket, head) => {
     );
     registry[user].params.sockets++;
   });
-  proxy.on("error", (err) => {
+  proxy.on("error", (err, req, res) => {
     console.log(`PROXY ERROR (2): ${err}`);
+    delete registry[user];
+    res.redirect("/login");
   });
   socket.on('ping', () => {
     socket.pong();
@@ -311,7 +335,6 @@ setInterval(() => {
       let lastActive = registry[user].params.active;
       return now() - lastActive > timeout;
     });
-  console.log(timed);
   for (let entry in timed) {
     let user = timed[entry];
     let id = registry[user].params.container.id;
