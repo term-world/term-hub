@@ -133,6 +133,26 @@ const containerData = async (user) => {
 };
 
 /**
+ * Discover extant containers and create a lastActive time
+ * @function discoverContainers
+ */
+const discoverContainers = async () => {
+  let containers = await moby.listContainers({all: true});
+  for await(let entry of containers) {
+    let acquired = await moby.getContainer(entry.Id);
+    let container = await acquired.inspect();
+    events.emit("lastActive",
+      {
+        user: container.Name.substring(1),
+        lastActive: now()
+      }
+    );
+  }
+}
+
+discoverContainers();
+
+/**
  * Read global user directory for user details
  * @function readDirectory
  * @private
@@ -346,8 +366,10 @@ const spindown = async (sig) => {
   if(args.all) { exit(); }
 }
 
-process.on("SIGINT", spindown.bind());
-process.on("SIGTERM", spindown.bind());
+// Removing all-kill when hub shuts down to preserve user connectivity
+
+//process.on("SIGINT", spindown.bind());
+//process.on("SIGTERM", spindown.bind());
 
 // Nonce signal to indiate single user container shutdown
 
