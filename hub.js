@@ -319,9 +319,7 @@ setInterval( async () => {
   const remove = Object
     .keys(activity)
     .filter((user, idx, self) => {
-      if(banished) {
-        return banished.indexOf(user);
-      }
+      if(banished) return banished.indexOf(user);
     });
   remove.forEach(user => {
     emitter.emit("SIGUSER", user);
