@@ -59,7 +59,6 @@ let activity = {}
  * @param {Object} store    Packet of active state info
  */
 events.on('lastActive', (store) => {
-  console.log(activity);
   activity[store.user] = { "lastActive": store.lastActive };
 });
 
