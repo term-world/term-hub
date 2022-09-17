@@ -332,13 +332,10 @@ const exit = () => {
   process.exit();
 };
 
-let interrupt;
-
 const spindown = async (sig) => {
   let world = await containerData(sig[1]);
   let args = sig[0] == "USER" ? { filters: {"id":[`${world.id}`]} } : {all: true};
   delete activity[user];
-  if(args.all) { interrupt = true; }
   let list = await moby.listContainers(args);
   for await(let entry of list) {
     let container = await moby.getContainer(entry.Id);
