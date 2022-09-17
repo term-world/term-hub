@@ -58,7 +58,8 @@ let activity = {}
  * Event used to store last active times
  * @param {Object} store    Packet of active state info
  */
-events.on('updateLastActive', (store) => {
+events.on('lastActive', (store) => {
+  console.log(activity);
   activity[store.user] = { "lastActive": store.lastActive };
 });
 
@@ -121,6 +122,7 @@ const containerData = async (user) => {
     container = await acquired.inspect();
     return await {
       id: container.Id,
+      name: container.Name.substring(1),
       port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort
     }
   }
@@ -248,7 +250,6 @@ server.get("/*", async (req, res) => {
     if (err) throw err;
     res.redirect("/login");
   });
-  return;
 });
 
 /**
@@ -260,7 +261,7 @@ server.get("/*", async (req, res) => {
 app.on("upgrade", async (req, socket, head) => {
   let user;
   session(req, {}, () => {
-    user = req.session.user;
+    user = req.session.user || req.headers["x-forwarded-user"]
   });
   let proxy = httpProxy.createServer({});
   let world = await containerData(user);
@@ -280,9 +281,8 @@ app.on("upgrade", async (req, socket, head) => {
   socket.on("data", () => {
     events.emit("lastActive",
       {
-        [user]: {
-          lastActive: now()
-        }
+        user: world.name,
+        lastActive: now()
       }
     )
   });
@@ -290,7 +290,6 @@ app.on("upgrade", async (req, socket, head) => {
     socket.end();
     socket.destroy();
   });
-  return;
 });
 
 // Activity monitoring
@@ -322,7 +321,7 @@ setInterval( async () => {
       if(banished) return banished.indexOf(user);
     });
   remove.forEach(user => {
-    emitter.emit("SIGUSER", user);
+    events.emit("SIGUSER", user);
   });
 }, 10000);
 
@@ -335,7 +334,7 @@ const exit = () => {
 const spindown = async (sig) => {
   let world = await containerData(sig[1]);
   let args = sig[0] == "USER" ? { filters: {"id":[`${world.id}`]} } : {all: true};
-  delete activity[user];
+  delete activity[world.name];
   let list = await moby.listContainers(args);
   for await(let entry of list) {
     let container = await moby.getContainer(entry.Id);
