@@ -115,6 +115,18 @@ const address = (container, fn) => {
   });
 }
 
+const containerData = async (user) => {
+  let container;
+  let containers = await ishmael.listContainers({names: user});
+  for await(let entry of containers){
+    let acquired = await ishmael.getContainer(entry.Id);
+    container = await acquired.inspect();
+  }
+  return await {
+    port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort,
+  };
+}
+
 /**
  * Attempts to connect to the container on the generated port
  * @function connect
@@ -123,12 +135,8 @@ const address = (container, fn) => {
  * @param {Function}  fn    Callback function
  */
 const connect = async (user, fn) => {
-  let port;
-  let container = await ishmael.listContainers({names: user});
-  for await(let info of container){
-    port = info.Ports[0].PublicPort;
-  }
-  http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
+  let world = await containerData(user);
+  http.get({ host: "0.0.0.0", port: world.port, path: `/` }, (res) => {
     fn();
   }).on('error', (err) => {
     connect(user, fn);
@@ -194,7 +202,7 @@ server.get('/login', async(req, res) => {
   });
   // If user is already attached to a container
   let isAlive = await alive(user);
-  if(isAlive){ connect(user, () => { res.redirect("/"); res.end(); }); return; }
+  if(isAlive){ connect(user, () => { res.redirect("/"); res.end(); });  }
   // Create container from Docker API
   let userId = directory[user].uid;
   let district = directory[user].district;
