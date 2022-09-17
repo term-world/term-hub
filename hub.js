@@ -115,7 +115,7 @@ const now = () => {
  */
 const containerData = async (user) => {
   let container;
-  let containers = await moby.listContainers({names: user});
+  let containers = await moby.listContainers( {filters: {"name": [user]}} );
   for await(let entry of containers) {
     let acquired = await moby.getContainer(entry.Id);
     container = await acquired.inspect();
@@ -127,6 +127,7 @@ const containerData = async (user) => {
   }
   return await {
     id: null,
+    name: null,
     port: null
   }
 };
@@ -151,11 +152,11 @@ const readDirectory = () => {
  * @param {String} port       Port binding for new container
  * @param {Object} directory  Directory of relevant user data
  */
-const startContainer = (user) => {
+const startContainer = async (user) => {
   let uid = directory[user].uid;
   let gid = directory[user].gid
   let district = directory[user].district;
-  moby.run(`world:${process.env.IMAGE}`, [], undefined, {
+  await moby.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
     "Env": [
@@ -235,10 +236,11 @@ server.get("/login", async (req, res) => {
 server.get("/*", async (req, res) => {
   let user;
   session(req, {}, () => {
-    user = req.session.user;
+    user = req.session.user || req.headers["x-forwarded-user"]
+    if(user === undefined) res.redirect("/login");
   });
-  if(user === undefined) res.redirect("/login");
   let world = await containerData(user);
+  if(world.id === null) res.redirect("/login");
   const proxy = httpProxy.createServer({});
   proxy.web(
     req,
