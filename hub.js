@@ -155,10 +155,17 @@ const discoverContainers = async () => {
   for await(let entry of containers) {
     let acquired = await moby.getContainer(entry.Id);
     let container = await acquired.inspect();
+    let user = container.Name.substring(1)
     events.emit("lastActive",
       {
-        user: container.Name.substring(1),
+        user: user,
         lastActive: now()
+      }
+    );
+    events.emit("registerProxy",
+      {
+        user: user,
+        port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort
       }
     );
   }
