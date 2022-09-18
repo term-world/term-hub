@@ -314,10 +314,10 @@ server.get("/*", async (req, res) => {
  * @param {Object} head     ?
  */
 app.on("upgrade", async (req, socket, head) => {
-  let user;
-  session(req, {}, () => {
-    user = req.headers["x-forwarded-user"]
-  });
+  let user = req.headers["x-forwarded-user"];
+  //session(req, {}, () => {
+  //  user = req.headers["x-forwarded-user"]
+  //});
   let proxy = httpProxy.createServer({});
   proxy.ws(
     req,
