@@ -11,7 +11,6 @@ const emitter = require('events');
 const env = require('dotenv').config();
 const httpProxy = require('http-proxy');
 const cookies = require('cookie-parser');
-const exec = require('child_process').exec;
 const sessions = require('express-session');
 const sessionFile = require('session-file-store')(sessions);
 
@@ -54,12 +53,25 @@ const events = new emitter();
 
 let activity = {}
 
+// Setup global container run queue
+
+let queue = [];
+
 /**
  * Event used to store last active times
  * @param {Object} store    Packet of active state info
  */
 events.on('lastActive', (store) => {
   activity[store.user] = { "lastActive": store.lastActive };
+});
+
+/**
+ * Event used to enqueue and unqueue users
+ * @params {String} user    User to add to queue
+ */
+events.on("enqueueUser", (store) => {
+  if(store.queued) queue.push(store.user);
+  else queue.splice(queue.indexOf(store.user));
 });
 
 /**
@@ -125,11 +137,7 @@ const containerData = async (user) => {
       port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort
     }
   }
-  return await {
-    id: null,
-    name: null,
-    port: null
-  }
+  return undefined;
 };
 
 /**
@@ -172,11 +180,11 @@ const readDirectory = () => {
  * @param {String} port       Port binding for new container
  * @param {Object} directory  Directory of relevant user data
  */
-const startContainer = async (user) => {
+const startContainer = (user) => {
   let uid = directory[user].uid;
   let gid = directory[user].gid
   let district = directory[user].district;
-  await moby.run(`world:${process.env.IMAGE}`, [], undefined, {
+  moby.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
     "Env": [
@@ -197,7 +205,7 @@ const startContainer = async (user) => {
       }
     }
   }, (err, data, container) => {
-    if(err) throw err;
+    if (err.statusCode === 409) throw err;
   });
 }
 
@@ -209,15 +217,19 @@ const startContainer = async (user) => {
  */
 const connectContainer = async (user, callback) => {
   let world = await containerData(user);
-  http.get({
-    host: "0.0.0.0",
-    port: world.port,
-    path: "/"
-  }, (res) => {
-    callback();
-  }).on("error", (err) => {
-    connectContainer(user, callback);
-  });
+  if (world !== undefined) {
+    http.get({
+      host: "0.0.0.0",
+      port: world.port || null,
+      path: "/"
+    }, (res) => {
+      callback();
+    }).on("error", (err) => {
+      connectContainer(user, callback);
+    }).on("container", (container) => {
+      console.log(container);
+    });
+  }
 };
 
 /**
@@ -234,14 +246,18 @@ server.get("/login", async (req, res) => {
     userSession.user = user;
   });
   // If user has a container running, boot to that container
-  let world = await containerData(user);
+  let world = await containerData(user); // <-- consider synchronous or promise?
   // Otherwise, create a new container and proceed
-  if(world.id === null) {
+  if(world === undefined && !queue.includes(user)) {
     // Get details necessary to start container
     readDirectory();
-    startContainer(
-      user
-    );
+    startContainer(user);
+    // Queue user
+    events.emit("enqueueUser", {user: user, queued: true});
+    let container;
+    do {
+      container = await containerData(user);
+    } while(!container);
   }
   await connectContainer(user, () => {
     res.redirect("/")
@@ -257,19 +273,21 @@ server.get("/*", async (req, res) => {
   let user;
   session(req, {}, () => {
     user = req.session.user || req.headers["x-forwarded-user"]
-    if(user === undefined) res.redirect("/login");
+    if(user === undefined) return res.redirect("/login");
   });
+
   let world = await containerData(user);
-  if(world.id === null) res.redirect("/login");
+  if (world === undefined) return res.redirect("/login");
+
   const proxy = httpProxy.createServer({});
   proxy.web(
     req,
     res,
     {target: `http://localhost:${world.port}/`}
   );
+
   proxy.on("error", (err, req, res) => {
-    if (err) throw err;
-    res.redirect("/login");
+   // res.redirect("/login");
   });
 });
 
@@ -293,8 +311,7 @@ app.on("upgrade", async (req, socket, head) => {
     {target: `http://localhost:${world.port}/`}
   );
   proxy.on("error", (err, req, res) => {
-    if (err) throw err;
-    res.rediect("/login");
+    //res.rediect("/login");
   });
   socket.on("ping", () => {
     socket.pong();
@@ -311,6 +328,9 @@ app.on("upgrade", async (req, socket, head) => {
     socket.end();
     socket.destroy();
   });
+
+  // Remove user from start queue
+  events.emit("enqueueUser", {user: user, queue: false});
 });
 
 // Activity monitoring
