@@ -51,16 +51,13 @@ const events = new emitter();
 
 // Setup global activity tracker
 
-let activity = {}
-
 // Setup global container run queue
-
-let queue = [];
 
 /**
  * Event used to store last active times
  * @param {Object} store    Packet of active state info
  */
+let activity = {}
 events.on('lastActive', (store) => {
   activity[store.user] = { "lastActive": store.lastActive };
 });
@@ -69,9 +66,18 @@ events.on('lastActive', (store) => {
  * Event used to enqueue and unqueue users
  * @params {String} user    User to add to queue
  */
+let queue = [];
 events.on("enqueueUser", (store) => {
   if(store.queued) queue.push(store.user);
   else queue.splice(queue.indexOf(store.user));
+});
+/**
+ * Event used to register a user's proxied port
+ * @params {String} user    User to query for port
+ */
+let proxies = {};
+events.on("registerProxy", (store) => {
+  if(!proxies[store.user]) proxies[store.user] = store.port;
 });
 
 /**
@@ -220,7 +226,7 @@ const connectContainer = async (user, callback) => {
   if (world !== undefined) {
     http.get({
       host: "0.0.0.0",
-      port: world.port || null,
+      port: world.port,
       path: "/"
     }, (res) => {
       callback();
@@ -280,6 +286,9 @@ server.get("/*", async (req, res) => {
   if (world === undefined) return res.redirect("/login");
 
   const proxy = httpProxy.createServer({});
+  events.emit("registerProxy",
+    {user: user, port: world.port}
+  );
   proxy.web(
     req,
     res,
@@ -300,15 +309,14 @@ server.get("/*", async (req, res) => {
 app.on("upgrade", async (req, socket, head) => {
   let user;
   session(req, {}, () => {
-    user = req.session.user || req.headers["x-forwarded-user"]
+    user = req.headers["x-forwarded-user"]
   });
   let proxy = httpProxy.createServer({});
-  let world = await containerData(user);
   proxy.ws(
     req,
     socket,
     head,
-    {target: `http://localhost:${world.port}/`}
+    {target: `http://localhost:${proxies[user]}/`}
   );
   proxy.on("error", (err, req, res) => {
     //res.rediect("/login");
@@ -319,7 +327,7 @@ app.on("upgrade", async (req, socket, head) => {
   socket.on("data", () => {
     events.emit("lastActive",
       {
-        user: world.name,
+        user: user,
         lastActive: now()
       }
     )
@@ -376,6 +384,7 @@ const spindown = async (sig) => {
   let world = await containerData(sig[1]);
   let args = sig[0] == "USER" ? { filters: {"id":[`${world.id}`]} } : {all: true};
   delete activity[world.name];
+  delete proxies[world.name];
   let list = await moby.listContainers(args);
   for await(let entry of list) {
     let container = await moby.getContainer(entry.Id);
