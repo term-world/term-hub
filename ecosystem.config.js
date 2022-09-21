@@ -1,7 +1,7 @@
 module.exports = {
   apps : [{
     name   : "term-hub",
-    script : "./hub.js",
+    script : "./scripts/app.js",
     exec_mode: "fork",
   }]
 }
