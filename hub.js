@@ -1,15 +1,20 @@
 "use strict";
 
+// Imports
+
 const fs = require('fs');
 const os = require('os');
 const net = require('net');
 const http = require('http');
 const express = require('express');
-const EventEmitter = require('events');
+const emitter = require('events');
 const env = require('dotenv').config();
+const httpProxy = require('http-proxy');
 const cookies = require('cookie-parser');
 const sessions = require('express-session');
 const sessionFile = require('session-file-store')(sessions);
+
+// Create sessions
 
 const session = sessions({
   secret: process.env.COOKIE_SECRET,
@@ -18,355 +23,392 @@ const session = sessions({
   store: new sessionFile()
 });
 
-let server = express();
+// Create global for accessing sessions
+let userSession;
 
+// Create app server
+
+let server = express();
 server.use(session);
 server.use(cookies());
 
-let sess;
-let interrupt;
-
-// Listen for incoming traffic on port 8080
+// Listen for incoming traffic
 
 const app = http.createServer(server);
 app.listen(8080);
 
-// Create registries (ports occupied, containers running)
+// Create reserved port registry
+let ports = [8000, 8080];
 
-let ports = [80, 443, 4180, 5000, 8000, 8080];
-let registry = { };
+// Docker daemon setup
 
-// Docker setup
+const docker = require("dockerode");
+const moby = new docker({socketPath: '/var/run/docker.sock'});
 
-const Docker = require("dockerode");
-const ishmael = new Docker({socketPath: '/var/run/docker.sock'});
+// Setup event emitter
 
-// Create event emitter
+const events = new emitter();
 
-const emitter = new EventEmitter();
+// Setup global activity tracker
 
-/**
- * Creates random port assignment between 1000 and 65535
- * @function randomize
- * @private
- * @param {String}  lower   Lower limit of random range
- * @param {String}  upper   Upper limit of random range
- */
-const randomize = (lower, upper) => {
-  return Math.floor(Math.random() * (upper - lower) + lower);
-}
-
-const now = () => {
-  return Math.floor(new Date().getTime() / 1000);
-}
+// Setup global container run queue
 
 /**
- * Discovers ports already in use
- * @function occupied
- * @private
- * @param {String}    port  Port to query
- * @param {Function}  fn    Callback
+ * Event used to store last active times
+ * @param {Object} store    Packet of active state info
  */
-const occupied = (port) => {
-  let server = net.createServer((socket) => {
+let activity = {}
+events.on('lastActive', (store) => {
+  activity[store.user] = { "lastActive": store.lastActive };
+});
+
+/**
+ * Event used to enqueue and unqueue users
+ * @params {String} user    User to add to queue
+ */
+let queue = [];
+events.on("enqueueUser", (store) => {
+  if(store.queued) queue.push(store.user);
+  else queue.splice(queue.indexOf(store.user));
+});
+/**
+ * Event used to register a user's proxied port
+ * @params {String} user    User to query for port
+ */
+let proxies = {};
+events.on("registerProxy", (store) => {
+  if(!proxies[store.user]) proxies[store.user] = store.port;
+});
+
+/**
+ * Discover ports already in use
+ * @function isOccupiedPort
+ * @private
+ * @param {String}  port  Port to query
+ */
+const isOccupiedPort = (port) => {
+  let local = net.createServer( (socket) => {
     socket.write('Ping\r\n');
     socket.pipe(socket);
   });
-  server.on("error", (err) => {
+  local.on("error", (err) => {
     return true;
   });
-  server.on("listening", (success) => {
-    server.close();
+  local.on("listening", (success) => {
+    local.close();
     return false;
   });
-  server.listen(port, '0.0.0.0');
-}
-
-/**
- * Generates a unique port for new containers
- * @function port
- * @private
- */
-const port = () => {
-  let pid = randomize(1000, 65535);
-  while(true) {
-    let used = occupied(port);
-    if(!ports.hasOwnProperty(pid)) {
-      ports.push(pid);
-      break;
-    }
-    pid = randomize(1000, 65535);
-  }
-  return pid;
-}
-
-/**
- * Acquires address from a container's properties
- * @function address
- * @private
- * @param {Container} container Instance of an individual container
- * @param {Function}  fn        Callback function
- */
-const address = (container, fn) => {
-  container.inspect((err,data) => {
-    let addr = data.NetworkSettings.Networks.bridge.IPAddress;
-    if(!addr) { address(container,fn) }
-    else { fn(addr) }
-  });
-}
-
-/**
- * Attempts to connect to the container on the generated port
- * @function connect
- * @private
- * @param {String}    user  Username of user from x-forwarded-user
- * @param {Function}  fn    Callback function
- */
-const connect = (user, fn) => {
-  let port = registry[user].params.port;
-  http.get({ host: "0.0.0.0", port: port, path: `/` }, (res) => {
-    fn();
-  }).on('error', (err) => {
-    connect(user, fn);
-  });
+  local.listen(port, "0.0.0.0");
 };
 
-// Event used to add information to global container registry
-
-emitter.on('register', (store) => {
-  if(!registry[store.user]) registry[store.user] = { "params": { } };
-  for(let param in store.params) {
-    registry[store.user].params[param] = store.params[param]
-  }
-});
-
-// Read directory to pass the DISTRICT environment variable
-let directory;
-
-fs.readFile(process.env.DIRECTORY, (err, data) => {
-  directory = JSON.parse(data);
-});
-
-// Set proxy object for web and socket proxies
-
-const httpProxy = require('http-proxy');
+/**
+ * Creates random port assignment 1000-65535
+ * @function randomPort
+ * @private
+ * @param {String} lower  Lower limit of random range
+ * @param {String} upper  Upper limit of random range
+ */
+const randomPort = (lower, upper) => {
+  let port;
+  do {
+    port = Math.floor(Math.random() * (upper - lower) + lower);
+  } while(isOccupiedPort(port));
+  ports.push(port);
+  return port;
+};
 
 /**
- * Acquires content at /login endpoint
- * @param {Object}  req   Web request
- * @param {Object}  res   Web response
+ * Get current time on request
+ * @function now
+ * @private
  */
-server.get('/login', (req, res) => {
-  // Acquire registry
-  fs.readFile(process.env.DIRECTORY, (err, data) => {
-    directory = JSON.parse(data);
-  });
-  // Acquire random port
-  let pid = port();
-  // Get authenticated user from header or session
-  let user;
-  session(req, {}, () => {
-    user =  req.headers['x-forwarded-user'] || req.session.user;
-    // Set user property of session
-    sess = req.session;
-    sess.user = user;
-  });
-  // If neither header or session, redirect to authentication
-  if(user === undefined) { //return res.redirect('/login');
+const now = () => {
+  return Math.floor(new Date().getTime() / 1000);
+};
+
+/**
+ * Retrieve container data from running container(s)
+ * @function containerData
+ * @param {String} user   Authenticated user requesting container
+ */
+const containerData = async (user) => {
+  let container;
+  let containers = await moby.listContainers( {filters: {"name": [user]}} );
+  for await(let entry of containers) {
+    let acquired = await moby.getContainer(entry.Id);
+    container = await acquired.inspect();
+    return await {
+      id: container.Id,
+      name: container.Name.substring(1),
+      port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort
     }
-  // Create container from Docker API
-  let userId = directory[user].uid;
+  }
+  return undefined;
+};
+
+/**
+ * Discover extant containers and create a lastActive time
+ * @function discoverContainers
+ */
+const discoverContainers = async () => {
+  let containers = await moby.listContainers({all: true});
+  for await(let entry of containers) {
+    let acquired = await moby.getContainer(entry.Id);
+    let container = await acquired.inspect();
+    let user = container.Name.substring(1)
+    events.emit("lastActive",
+      {
+        user: user,
+        lastActive: now()
+      }
+    );
+    events.emit("registerProxy",
+      {
+        user: user,
+        port: container.NetworkSettings.Ports['8000/tcp'][0].HostPort
+      }
+    );
+  }
+}
+
+discoverContainers();
+
+/**
+ * Read global user directory for user details
+ * @function readDirectory
+ * @private
+ */
+let directory;
+
+const readDirectory = () => {
+  let json = fs.readFileSync(process.env.DIRECTORY);
+  directory = JSON.parse(json);
+}
+
+/**
+ * Start a new container for users requiring one
+ * @function startContainer
+ * @private
+ * @param {String} user       User requesting a container
+ * @param {String} port       Port binding for new container
+ * @param {Object} directory  Directory of relevant user data
+ */
+const startContainer = (user) => {
+  let uid = directory[user].uid;
+  let gid = directory[user].gid
   let district = directory[user].district;
-  let districtId = directory[user].gid;
-  console.log(`STARTING FOR ${user}`);
-  ishmael.run(`world:${process.env.IMAGE}`, [], undefined, {
+  moby.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
     "Env": [
       `VS_USER=${user}`,
-      `VS_USER_ID=${userId}`,
+      `VS_USER_ID=${uid}`,
       `DISTRICT=${district}`,
-      `GID=${districtId}`
+      `GID=${gid}`
     ],
-    "ExposedPorts": {"8000/tcp":{}},
+    "ExposedPorts": { "8000/tcp":{} },
     "HostConfig": {
       "Binds": [`${process.env.VOLUME}:/world`],
       "PortBindings": {
         "8000/tcp": [
           {
-            "HostPort": pid.toString()
+            "HostPort": `${randomPort(1000,65535)}`
           }
         ]
       }
     }
-  }, (err,data,container) => {
-    if(err) { console.log(err); }
-  }).on('container', (container) => {
-    // On container creation, get container private address
-    address(container, (addr) => {
-      emitter.emit('register',
-        {
-          user: user,
-          params: {
-            port: pid,
-            sockets: 0,
-            address: addr,
-            container: container
-          }
-        }
-      );
-      // Callback to redirect request
-      connect(user, () => {
-        res.redirect(`/`);
-      });
-    })
+  }, (err, data, container) => {
+    if (err.statusCode === 409) throw err;
   });
-});
+}
 
 /**
- * Acquires content at / endpoint
- * @param {Object}  req   Web request
- * @param {Object}  res   Web response
+ * Attempt connection to requested container on generated port
+ * @function connectContainer
+ * @private
+ * @param {String} user   Authenticated user requresting container
  */
-server.get('/*', (req,res) => {
-  let user;
-  session(req, {}, () =>  {
-    user = req.session.user;
-  });
-  if(
-    user === undefined ||
-    registry[user] === undefined
-  ) {
-    return res.redirect('/login');
+const connectContainer = async (user, callback) => {
+  let world = await containerData(user);
+  if (world !== undefined) {
+    http.get({
+      host: "0.0.0.0",
+      port: world.port,
+      path: "/"
+    }, (res) => {
+      callback();
+    }).on("error", (err) => {
+      connectContainer(user, callback);
+    }).on("container", (container) => {
+      console.log(container);
+    });
   }
-  const proxy = httpProxy.createServer({});
-  proxy.web(req, res,
-    {target: `http://localhost:${registry[user].params.port}/`}
-  );
-  proxy.on("error", (err) => {
-    console.log(`PROXY ERROR (1): ${err}`);
+};
+
+/**
+ * Answers /login endpoint, creates containers for new users; rejoins old
+ * @param {Object} req    Web request
+ * @param {Object} res    Web response
+ */
+server.get("/login", async (req, res) => {
+  // Grab or create session data
+  let user;
+  session(req, {}, () => {
+    user = req.headers["x-forwarded-user"] || req.session.user;
+    userSession = req.session;
+    userSession.user = user;
+  });
+  // If user has a container running, boot to that container
+  let world = await containerData(user); // <-- consider synchronous or promise?
+  // Otherwise, create a new container and proceed
+  if(world === undefined && !queue.includes(user)) {
+    // Get details necessary to start container
+    readDirectory();
+    startContainer(user);
+    // Queue user
+    events.emit("enqueueUser", {user: user, queued: true});
+    let container;
+    do {
+      container = await containerData(user);
+    } while(!container);
+  }
+  await connectContainer(user, () => {
+    res.redirect("/")
   });
 });
 
 /**
- * Handles transfer of HTTP protocol to web sockets
- * @param {Object}  req     Web request
- * @param {Object}  socket  Socket created
- * @param {Object}  head    ?
+ * Answers / endpoint for created containers
+ * @param {Object} req    Web request
+ * @param {Object} res    Web response
  */
-
-app.on('upgrade', (req, socket, head) => {
+server.get("/*", async (req, res) => {
   let user;
-  let proxy = httpProxy.createServer({});
   session(req, {}, () => {
-    user = req.session.user;
-    if(user === undefined || registry[user] === undefined) { return; }
-    proxy.ws(req, socket, head,
-      {target: `http://localhost:${registry[user].params.port}/`}
-    );
-    registry[user].params.sockets++;
+    user = req.session.user || req.headers["x-forwarded-user"]
+    if(user === undefined) return res.redirect("/login");
   });
-  proxy.on("error", (err) => {
-    console.log(`PROXY ERROR (2): ${err}`);
+
+  let world = await containerData(user);
+  if (world === undefined) return res.redirect("/login");
+
+  const proxy = httpProxy.createServer({});
+  events.emit("registerProxy",
+    {user: user, port: world.port}
+  );
+  proxy.web(
+    req,
+    res,
+    {target: `http://localhost:${world.port}/`}
+  );
+
+  proxy.on("error", (err, req, res) => {
+   // res.redirect("/login");
   });
-  socket.on('ping', () => {
+});
+
+/**
+ * Handles transfer of HTTP to websocket
+ * @param {Object} req      Web request
+ * @param {Object} socket   Socket created
+ * @param {Object} head     ?
+ */
+app.on("upgrade", async (req, socket, head) => {
+  let user = req.headers["x-forwarded-user"];
+  //session(req, {}, () => {
+  //  user = req.headers["x-forwarded-user"]
+  //});
+  let proxy = httpProxy.createServer({});
+  proxy.ws(
+    req,
+    socket,
+    head,
+    {target: `http://localhost:${proxies[user]}/`}
+  );
+  proxy.on("error", (err, req, res) => {
+    //res.rediect("/login");
+  });
+  socket.on("ping", () => {
     socket.pong();
   });
-  socket.on('data', () => {
-    emitter.emit('register',
+  socket.on("data", () => {
+    events.emit("lastActive",
       {
         user: user,
-        params: {
-          active: now()
-        }
+        lastActive: now()
       }
-    );
+    )
   });
-  socket.on('close', () => {
+  socket.on("close", () => {
     socket.end();
     socket.destroy();
   });
+
+  // Remove user from start queue
+  events.emit("enqueueUser", {user: user, queue: false});
 });
 
-/**
- * Event handler for server-side errors
- * @param {String} err  Error message
- */
-server.on("error", err => console.log(err));
+// Activity monitoring
 
-/**
- * Event handler for proxy-side errors
- * @param {String} err  Error message
- */
-app.on("error", err => console.log(err));
+let timeout = process.env.TIMEOUT || 600;
 
-// Remove containers after idle status (TIMEOUT in seconds)
-
-let timeout = process.env.TIMEOUT || 900;
-
-setInterval(() => {
+setInterval( () => {
   const timed = Object
-    .keys(registry)
+    .keys(activity)
     .filter((user, idx, self) => {
-      let lastActive = registry[user].params.active;
-      return now() - lastActive > timeout;
+      return now() - activity[user].lastActive > timeout;
     });
-  console.log(timed);
-  for (let entry in timed) {
+  for(let entry in timed) {
     let user = timed[entry];
-    let id = registry[user].params.container.id;
-    emitter.emit('SIGUSER', user, id);
-    delete registry[user];
+    events.emit("SIGUSER", user);
+    delete activity[user];
   }
 }, 10000);
 
-// PRUNE PATROL
+// Prune patrol
 
-setInterval(async () => {
-    let list = await ishmael.listContainers({all: true});
-    let pruned = await ishmael.pruneContainers({until: now()});
-    let banished = pruned['ContainersDeleted'];
-    const remove = Object
-      .keys(registry)
-      .filter((id, idx, self) => {
-        if(banished) {
-          return banished.indexOf(id);
-        }
-      });
-    remove.forEach(elem => {
-        let user = elem;
-        let container = registry[user];
-        emitter.emit('SIGUSER', user, container);
+setInterval( async () => {
+  let list = await moby.listContainers({all: true});
+  let pruned = await moby.pruneContainers({until: now()});
+  let banished = pruned['ContainersDeleted'];
+  const remove = Object
+    .keys(activity)
+    .filter((user, idx, self) => {
+      if(banished) return banished.indexOf(user);
     });
+  remove.forEach(user => {
+    events.emit("SIGUSER", user);
+  });
 }, 10000);
 
-//Remove the container on SIGINT or exit
+// Container removal
 
 const exit = () => {
   process.exit();
 };
 
-async function spindown(sig) {
-  let user = sig[1];
-  let args = sig[0] == 'USER' ? { filters: {"id":[`${sig[2]}`]} } : {all: true};
-  delete registry[user];
-  if(args.all) { interrupt = true; }
-  let list = await ishmael.listContainers(args);
-  for await (let entry of list) {
-    let container = await ishmael.getContainer(entry.Id);
+const spindown = async (sig) => {
+  let world = await containerData(sig[1]);
+  let args = sig[0] == "USER" ? { filters: {"id":[`${world.id}`]} } : {all: true};
+  delete activity[world.name];
+  delete proxies[world.name];
+  let list = await moby.listContainers(args);
+  for await(let entry of list) {
+    let container = await moby.getContainer(entry.Id);
     let stoppage = await container.stop();
     let removal = await container.remove();
   }
-  let pruned = await ishmael.pruneContainers({until: now()})
+  let pruned = await moby.pruneContainers({until: now()});
   if(args.all) { exit(); }
 }
 
-process.on("SIGINT", spindown.bind());
-process.on("SIGTERM", spindown.bind());
+// Removing all-kill when hub shuts down to preserve user connectivity
 
-// Nonce custom signal to indicate single user container spindown
+//process.on("SIGINT", spindown.bind());
+//process.on("SIGTERM", spindown.bind());
 
-emitter.on('SIGUSER', (user, id) => {
-  console.log(`SINGLE USER SPIN DOWN: ${user}`)
-  spindown(['USER', user, id]);
+// Nonce signal to indiate single user container shutdown
+
+events.on("SIGUSER", (user) => {
+  spindown(["USER", user]);
 });
