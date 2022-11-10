@@ -14,6 +14,15 @@ const cookies = require('cookie-parser');
 const sessions = require('express-session');
 const sessionFile = require('session-file-store')(sessions);
 
+//Logging
+const winston = require('winston'); 
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [new winston.transports.Console()],
+});
+
 // Create sessions
 
 const session = sessions({
@@ -240,7 +249,7 @@ const connectContainer = async (user, callback) => {
     }).on("error", (err) => {
       connectContainer(user, callback);
     }).on("container", (container) => {
-      console.log(container);
+      logger.info(container);
     });
   }
 };
