@@ -218,7 +218,7 @@ const startContainer = (user) => {
       }
     }
   }, (err, data, container) => {
-    if (err.statusCode === 409) throw err;
+    // if (err.statusCode === 409) throw err;
   });
 }
 
