@@ -1,11 +1,10 @@
 {
   "name": "term-hub",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Hub for starting Docker images to support term-world",
-  "main": "hub.js",
+  "main": "scripts/app.js",
   "scripts": {
-    "start": "node hub.js",
-    "docs": "jsdoc hub.js --private"
+    "start": "node ./scripts/app.js"
   },
   "author": "Douglas Luman",
   "license": "MIT",
