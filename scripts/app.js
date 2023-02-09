@@ -194,6 +194,10 @@ const readDirectory = () => {
  * @param {Object} directory  Directory of relevant user data
  */
 const startContainer = (user) => {
+  // TODO: Refresh the environment file
+  // Read the directory over again
+  readDirectory();
+  // Provide start-up details
   let uid = directory[user].uid;
   let gid = directory[user].gid
   let district = directory[user].district;
@@ -273,7 +277,7 @@ server.get("/login", async (req, res) => {
     } while(!container);
   }
   await connectContainer(user, () => {
-    res.redirect("/")
+    res.redirect("/");
   });
 });
 
@@ -286,11 +290,11 @@ server.get("/*", async (req, res) => {
   let user;
   session(req, {}, () => {
     user = req.session.user || req.headers["x-forwarded-user"]
-    if(user === undefined) return res.redirect("/login");
+    if(user === undefined) res.redirect("/login");
   });
 
   let world = await containerData(user);
-  if (world === undefined) return res.redirect("/login");
+  if (world === undefined) res.redirect("/login");
 
   const proxy = httpProxy.createServer({});
   events.emit("registerProxy",
