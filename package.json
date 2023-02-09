@@ -1,6 +1,6 @@
 {
   "name": "term-hub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hub for starting Docker images to support term-world",
   "main": "scripts/app.js",
   "scripts": {
@@ -21,5 +21,10 @@
   },
   "peerDependencies": {
     "code-server": "4.x"
+  },
+  "peerDependenciesMeta": {
+    "code-server": {
+      "optional": true
+    }
   }
 }
