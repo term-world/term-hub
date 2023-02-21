@@ -181,10 +181,14 @@ discoverContainers();
 let directory;
 
 const readDirectory = () => {
-  let json = fs.readFileSync(process.env.DIRECTORY);
+  let json = fs.readFileSync(process.env.DIRECTORY, 'utf8');
   directory = JSON.parse(json);
 }
 
+const getWorldVersion = () => {
+  let version = fs.readFileSync(".world-version", 'utf8');
+  return version.trim();
+}
 /**
  * Start a new container for users requiring one
  * @function startContainer
@@ -194,14 +198,16 @@ const readDirectory = () => {
  * @param {Object} directory  Directory of relevant user data
  */
 const startContainer = (user) => {
-  // TODO: Refresh the environment file
+  // Refresh the world version
+  let worldVersion = getWorldVersion();
+  console.log(worldVersion);
   // Read the directory over again
   readDirectory();
   // Provide start-up details
   let uid = directory[user].uid;
   let gid = directory[user].gid
   let district = directory[user].district;
-  moby.run(`world:${process.env.IMAGE}`, [], undefined, {
+  moby.run(`world:${worldVersion}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
     "Env": [
@@ -375,6 +381,8 @@ setInterval( async () => {
   let list = await moby.listContainers({all: true});
   let pruned = await moby.pruneContainers({until: now()});
   let banished = pruned['ContainersDeleted'];
+  // TODO: Investigate activity and pruned registers; it seems
+  //       that old ports are still being served?
   const remove = Object
     .keys(activity)
     .filter((user, idx, self) => {
