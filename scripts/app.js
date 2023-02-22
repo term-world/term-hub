@@ -320,9 +320,6 @@ server.get("/*", async (req, res) => {
  */
 app.on("upgrade", async (req, socket, head) => {
   let user = req.headers["x-forwarded-user"];
-  //session(req, {}, () => {
-  //  user = req.headers["x-forwarded-user"]
-  //});
   let proxy = httpProxy.createServer({});
   proxy.ws(
     req,
@@ -373,7 +370,6 @@ setInterval( () => {
 // Prune patrol
 
 setInterval( async () => {
-  let list = await moby.listContainers({all: true});
   let pruned = await moby.pruneContainers({until: now()});
   let banished = pruned['ContainersDeleted'];
   const remove = Object
@@ -385,9 +381,6 @@ setInterval( async () => {
     delete activity[user];
     delete proxies[user];
   });
-  //remove.forEach(user => {
-  //  events.emit("SIGUSER", user);
-  //});
 }, 10000);
 
 // Container removal
