@@ -219,7 +219,8 @@ const startContainer = (user) => {
             "HostPort": `${randomPort(1000,65535)}`
           }
         ]
-      }
+      },
+      "CpuShares": 512
     }
   }, (err, data, container) => {
     // if (err.statusCode === 409) throw err;
@@ -273,7 +274,7 @@ server.get("/login", async (req, res) => {
     events.emit("enqueueUser", {user: user, queued: true});
     let container;
     do {
-      container = await containerData(user);
+        container = await containerData(user);
     } while(!container);
   }
   await connectContainer(user, () => {
@@ -307,7 +308,7 @@ server.get("/*", async (req, res) => {
   );
 
   proxy.on("error", (err, req, res) => {
-   // res.redirect("/login");
+    console.log("Errrrrr");
   });
 });
 
@@ -381,8 +382,12 @@ setInterval( async () => {
       if(banished) return banished.indexOf(user);
     });
   remove.forEach(user => {
-    events.emit("SIGUSER", user);
+    delete activity[user];
+    delete proxies[user];
   });
+  //remove.forEach(user => {
+  //  events.emit("SIGUSER", user);
+  //});
 }, 10000);
 
 // Container removal
