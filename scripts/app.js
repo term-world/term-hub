@@ -225,7 +225,8 @@ const startContainer = (user) => {
             "HostPort": `${randomPort(1000,65535)}`
           }
         ]
-      }
+      },
+      "CpuShares": 512
     }
   }, (err, data, container) => {
     // if (err.statusCode === 409) throw err;
@@ -279,7 +280,7 @@ server.get("/login", async (req, res) => {
     events.emit("enqueueUser", {user: user, queued: true});
     let container;
     do {
-      container = await containerData(user);
+        container = await containerData(user);
     } while(!container);
   }
   await connectContainer(user, () => {
@@ -313,7 +314,7 @@ server.get("/*", async (req, res) => {
   );
 
   proxy.on("error", (err, req, res) => {
-   // res.redirect("/login");
+    console.log("Errrrrr");
   });
 });
 
@@ -325,9 +326,6 @@ server.get("/*", async (req, res) => {
  */
 app.on("upgrade", async (req, socket, head) => {
   let user = req.headers["x-forwarded-user"];
-  //session(req, {}, () => {
-  //  user = req.headers["x-forwarded-user"]
-  //});
   let proxy = httpProxy.createServer({});
   proxy.ws(
     req,
@@ -378,7 +376,6 @@ setInterval( () => {
 // Prune patrol
 
 setInterval( async () => {
-  let list = await moby.listContainers({all: true});
   let pruned = await moby.pruneContainers({until: now()});
   let banished = pruned['ContainersDeleted'];
   // TODO: Investigate activity and pruned registers; it seems
@@ -389,7 +386,8 @@ setInterval( async () => {
       if(banished) return banished.indexOf(user);
     });
   remove.forEach(user => {
-    events.emit("SIGUSER", user);
+    delete activity[user];
+    delete proxies[user];
   });
 }, 10000);
 
