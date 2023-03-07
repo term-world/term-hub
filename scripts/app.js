@@ -51,8 +51,6 @@ const events = new emitter();
 
 // Setup global activity tracker
 
-// Setup global container run queue
-
 /**
  * Event used to store last active times
  * @param {Object} store    Packet of active state info
@@ -61,6 +59,8 @@ let activity = {}
 events.on('lastActive', (store) => {
   activity[store.user] = { "lastActive": store.lastActive };
 });
+
+// Setup global container run queue
 
 /**
  * Event used to enqueue and unqueue users
@@ -295,12 +295,15 @@ server.get("/*", async (req, res) => {
   });
 
   let world = await containerData(user);
+
   if (world === undefined) res.redirect("/login");
 
   const proxy = httpProxy.createServer({});
+
   events.emit("registerProxy",
     {user: user, port: world.port}
   );
+
   proxy.web(
     req,
     res,
@@ -364,6 +367,7 @@ setInterval( () => {
     let user = timed[entry];
     events.emit("SIGUSER", user);
     delete activity[user];
+    delete proxies[user];
   }
 }, 10000);
 
@@ -381,7 +385,7 @@ setInterval( async () => {
     delete activity[user];
     delete proxies[user];
   });
-}, 10000);
+}, 5000);
 
 // Container removal
 
