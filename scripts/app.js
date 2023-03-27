@@ -201,6 +201,7 @@ const startContainer = (user) => {
   let uid = directory[user].uid;
   let gid = directory[user].gid
   let district = directory[user].district;
+  // TODO: Consider passing all of .env as a single set of objects?
   moby.run(`world:${process.env.IMAGE}`, [], undefined, {
     "name": `${user}`,
     "Hostname": "term-world",
@@ -208,7 +209,12 @@ const startContainer = (user) => {
       `VS_USER=${user}`,
       `VS_USER_ID=${uid}`,
       `DISTRICT=${district}`,
-      `GID=${gid}`
+      `GID=${gid}`,
+      `DB_HOST=${process.env.DB_HOST}`,
+      `DB_USER=${process.env.DB_USER}`,
+      `DB_PASS=${process.env.DB_PASS}`,
+      `OPEN_AI_KEY=${process.env.OPEN_AI_KEY}`,
+      `OPEN_AI_ORG=${process.env.OPEN_AI_ORG}`
     ],
     "ExposedPorts": { "8000/tcp":{} },
     "HostConfig": {
