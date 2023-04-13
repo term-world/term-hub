@@ -352,7 +352,6 @@ app.on("upgrade", async (req, socket, head) => {
   });
   socket.on("close", () => {
     socket.end();
-    socket.destroy();
   });
 
   // Remove user from start queue
